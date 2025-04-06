@@ -6,7 +6,6 @@ fn main() {
         .flag("-march=native")
         .flag("-fPIC")
         .flag("-shared")
-        .flag("-mavx512f")
         .compile("add");
 
     println!("cargo:rerun-if-changed=src/add.c");
