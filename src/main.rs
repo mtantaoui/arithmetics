@@ -1,10 +1,23 @@
+#![feature(simd_ffi)]
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{
-    __m128, __m256, _mm_add_ps, _mm_loadu_ps, _mm_set1_ps, _mm_storeu_ps, _mm256_add_ps,
+    __m128, __m256, __m512, _mm_add_ps, _mm_loadu_ps, _mm_set1_ps, _mm_storeu_ps, _mm256_add_ps,
     _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps,
 };
 use std::fmt;
 use std::ops::{Add, AddAssign};
+
+use libc::{c_float, c_int};
+
+// Foreign function interface declaration
+#[link(name = "add", kind = "static")]
+unsafe extern "C" {
+    fn addition(a: c_int, b: c_int) -> c_int;
+
+    #[warn(improper_ctypes)]
+    fn f32x16_set(value: c_float) -> __m512;
+}
 
 pub trait SimdVec {
     /// Create a new SIMD vector with all lanes set to the same value
@@ -157,6 +170,7 @@ impl SimdVec for F32x4 {
     }
 
     /// Load 4 f32 values from memory
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn load(ptr: *const f32) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -205,6 +219,7 @@ impl SimdVec for F32x4 {
     }
 
     /// Store 4 f32 values to memory
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn store(&self, ptr: *mut f32) {
         #[cfg(target_arch = "x86_64")]
@@ -301,6 +316,7 @@ impl SimdVec for F32x4 {
     }
 
     /// Load 4 f32 values with a mask (for handling remainders)
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn load_partial(ptr: *const f32, count: usize) -> Self {
         assert!(count <= 4, "Count must be <= 4");
@@ -314,6 +330,7 @@ impl SimdVec for F32x4 {
     }
 
     /// Store 4 f32 values with a mask (for handling remainders)
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn store_partial(&self, ptr: *mut f32, count: usize) {
         assert!(count <= 4, "Count must be <= 4");
@@ -664,45 +681,19 @@ impl AddAssign for F32x8 {
 // Define f32x16 using two f32x8
 #[derive(Copy, Clone, Debug)]
 pub struct F32x16 {
-    #[cfg(target_feature = "avx512f")]
-    inner: __m512,
-
-    #[cfg(not(target_arch = "avx512f"))]
     low: F32x8,
-    #[cfg(not(target_arch = "avx512f"))]
     high: F32x8,
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(target_feature = "avx512f")] {
-        use core::arch::x86_64::_mm512_set1_ps;
-
-        #[target_feature(enable = "avx512f")]
-        unsafe fn avx512_set1_ps(val: f32) -> core::arch::x86_64::__m512 {
-            _mm512_set1_ps(val)
-        }
-    } else {
-        unsafe fn avx512_set1_ps(_val: f32) -> () {
-            panic!("AVX-512 not available at compile time!");
-        }
-    }
 }
 
 impl F32x16 {
     #[inline]
     pub fn splat(value: f32) -> Self {
-        unsafe {
+        {
             #[cfg(target_arch = "x86_64")]
             {
-                if is_x86_feature_detected!("avx512f") {
-                    return Self {
-                        inner: avx512_set1_ps(value),
-                    };
-                } else {
-                    panic!(
-                        "AVX512f not supported on this system. This operation requires AVX512f \
-                        for optimized SIMD instructions. Please run this on a machine with AVX512f support."
-                    );
+                Self {
+                    low: F32x8::splat(value),
+                    high: F32x8::splat(value),
                 }
             }
 
@@ -743,6 +734,7 @@ impl F32x16 {
         }
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     pub fn load(ptr: *const f32) -> Self {
         Self {
@@ -751,14 +743,16 @@ impl F32x16 {
         }
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
-    pub unsafe fn store(&self, ptr: *mut f32) {
+    pub fn store(&self, ptr: *mut f32) {
         self.low.store(ptr);
         self.high.store(unsafe { ptr.add(8) });
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
-    pub unsafe fn load_partial(ptr: *const f32, count: usize) -> Self {
+    pub fn load_partial(ptr: *const f32, count: usize) -> Self {
         assert!(count <= 16, "Count must be <= 16");
 
         if count <= 8 {
@@ -774,8 +768,9 @@ impl F32x16 {
         }
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
-    pub unsafe fn store_partial(&self, ptr: *mut f32, count: usize) {
+    pub fn store_partial(&self, ptr: *mut f32, count: usize) {
         assert!(count <= 16, "Count must be <= 16");
 
         if count <= 8 {
@@ -946,16 +941,35 @@ mod tests {
 
         assert_eq!(result, expected);
     }
+
+    #[test]
+    fn test_edge_case_vector_lengths_2() {
+        // Test with length 5 (not a multiple of vector widths)
+        let a = vec![1.0; 17];
+        let b = vec![2.0; 17];
+
+        let expected = vec![3.0; 17];
+        let result = a.add(b);
+
+        assert_eq!(result, expected);
+    }
 }
 
 /// Utility function to demonstrate the usage
 fn main() {
-    // // Example with a standard aligned vector
-    // let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    // let b = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
+    // Call the C function from Rust
+    let result = unsafe { addition(5, 7) };
+    println!("Result from C: {}", result);
 
-    // let c = a + b;
-    // println!("Standard result: {:?}", c);
+    let v = unsafe { f32x16_set(5.0) };
+    println!("v={:?}", v);
+
+    // Example with a standard aligned vector
+    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let b = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
+
+    let c = a.add(b);
+    println!("Standard result: {:?}", c);
 
     // Example with edge case (5 elements)
     let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
@@ -970,9 +984,9 @@ fn main() {
         println!("No")
     }
 
-    // // Demonstration of f32x4
-    // let v1 = F32x4::new(1.0, 2.0, 3.0, 4.0);
-    // let v2 = F32x4::new(10.0, 20.0, 30.0, 40.0);
-    // let sum = v1 + v2;
-    // println!("f32x4 addition result: {:?}", sum);
+    // Demonstration of f32x4
+    let v1 = F32x4::new(1.0, 2.0, 3.0, 4.0);
+    let v2 = F32x4::new(10.0, 20.0, 30.0, 40.0);
+    let sum = v1 + v2;
+    println!("f32x4 addition result: {:?}", sum);
 }
