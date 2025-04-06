@@ -1,4 +1,5 @@
 #![feature(simd_ffi)]
+#![feature(avx512_target_feature)]
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{
@@ -15,8 +16,10 @@ use libc::{c_float, c_int};
 unsafe extern "C" {
     fn addition(a: c_int, b: c_int) -> c_int;
 
-    #[warn(improper_ctypes)]
     fn f32x16_set(value: c_float) -> __m512;
+    fn f32x16_load(mem_addr: *mut c_float) -> __m512;
+    fn f32x16_add(a: __m512, b: __m512) -> __m512;
+    fn f32x16_store(mem_addr: *mut c_float, a: __m512);
 }
 
 pub trait SimdVec {
@@ -904,6 +907,70 @@ impl SimdAdd for Vec<f32> {
     }
 }
 
+fn align_to_64_bytes(data: &mut [f32]) -> *mut f32 {
+    let addr = data.as_mut_ptr() as usize;
+    let misalignment = addr % 64;
+    if misalignment == 0 {
+        data.as_mut_ptr()
+    } else {
+        // Ensure there's enough space after alignment
+        assert!(data.len() >= 16 + (64 - misalignment) / 4);
+        let aligned_addr = addr + (64 - misalignment);
+        aligned_addr as *mut f32
+    }
+}
+
+#[repr(align(64))]
+struct AlignedF32x16 {
+    data: [f32; 16],
+}
+
+/// Utility function to demonstrate the usage
+fn main() {
+    // // Call the C function from Rust
+    // let result = unsafe { addition(5, 7) };
+    // println!("Result from C: {}", result);
+
+    let mut simd_vec1 = AlignedF32x16 { data: [12.0; 16] };
+    let mut simd_vec2 = AlignedF32x16 { data: [5.0; 16] };
+
+    let mut simd_res = AlignedF32x16 { data: [0.0; 16] };
+
+    let v1 = unsafe { f32x16_load(simd_vec1.data.as_mut_ptr()) };
+    let v2 = unsafe { f32x16_load(simd_vec2.data.as_mut_ptr()) };
+
+    let v3 = unsafe { f32x16_add(v1, v2) };
+    unsafe { f32x16_store(simd_res.data.as_mut_ptr(), v3) };
+
+    println!("simd_res = {:?}", simd_res.data);
+
+    // Example with a standard aligned vector
+    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let b = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
+
+    let c = a.add(b);
+    println!("Standard result: {:?}", c);
+
+    // Example with edge case (5 elements)
+    let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+
+    let z = x.add(y);
+    println!("Edge case (5 elements) result: {:?}", z);
+
+    if is_x86_feature_detected!("avx512f") {
+        println!("Yes")
+    } else {
+        println!("No")
+    }
+
+    // Demonstration of f32x4
+    let v1 = F32x4::new(1.0, 2.0, 3.0, 4.0);
+    let v2 = F32x4::new(10.0, 20.0, 30.0, 40.0);
+    let sum = v1 + v2;
+    println!("f32x4 addition result: {:?}", sum);
+}
+
 /// Example usage
 #[cfg(test)]
 mod tests {
@@ -953,40 +1020,4 @@ mod tests {
 
         assert_eq!(result, expected);
     }
-}
-
-/// Utility function to demonstrate the usage
-fn main() {
-    // Call the C function from Rust
-    let result = unsafe { addition(5, 7) };
-    println!("Result from C: {}", result);
-
-    let v = unsafe { f32x16_set(5.0) };
-    println!("v={:?}", v);
-
-    // Example with a standard aligned vector
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let b = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
-
-    let c = a.add(b);
-    println!("Standard result: {:?}", c);
-
-    // Example with edge case (5 elements)
-    let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
-
-    let z = x.add(y);
-    println!("Edge case (5 elements) result: {:?}", z);
-
-    if is_x86_feature_detected!("avx512f") {
-        println!("Yes")
-    } else {
-        println!("No")
-    }
-
-    // Demonstration of f32x4
-    let v1 = F32x4::new(1.0, 2.0, 3.0, 4.0);
-    let v2 = F32x4::new(10.0, 20.0, 30.0, 40.0);
-    let sum = v1 + v2;
-    println!("f32x4 addition result: {:?}", sum);
 }
