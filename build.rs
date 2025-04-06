@@ -2,6 +2,10 @@ fn main() {
     // Compile C code
     cc::Build::new()
         .file("src/add.c")
+        // .flag("-mavx512f")
+        .flag("-march=native")
+        .flag("-fPIC")
+        .flag("-shared")
         .flag("-mavx512f")
         .compile("add");
 
