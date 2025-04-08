@@ -1,4 +1,4 @@
-#![feature(stdarch_x86_avx512)]
+// #![feature(stdarch_x86_avx512)]
 
 use std::arch::x86_64::*;
 
@@ -19,14 +19,13 @@ fn main() {
     println!("  - Using baseline implementation (no SIMD optimizations)");
 
     // Example operation: vector dot product
-    let a = vec![
-        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-    ];
-    let b = vec![
-        2.0f32, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
-    ];
+    let n: usize = 18;
+
+    let a = vec![1.0f32; n];
+    let b = vec![10.0f32; n];
 
     let result = dot_product(&a, &b);
+
     println!("Dot product result: {}", result);
 }
 
@@ -38,7 +37,7 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     // based on the cfg flags set by build.rs
 
     #[cfg(avx512)]
-    return dot_product_avx512f(a, b);
+    return dot_product_avx512f(a.to_vec(), b.to_vec());
 
     #[cfg(avx2)]
     return dot_product_avx2(a, b);
@@ -54,33 +53,75 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(avx512)]
 #[inline(always)]
-fn dot_product_avx512f(a: &[f32], b: &[f32]) -> f32 {
+fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> f32 {
+    use rayon::iter::{
+        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    };
+
     unsafe {
-        let mut sum = _mm512_setzero_ps();
+        // let len = a.len();
+        // let mut sum = _mm512_setzero_ps();
 
-        // Process 16 elements at a time using AVX-512F
-        for i in (0..a.len()).step_by(16) {
-            if i + 16 <= a.len() {
-                let a_vec = _mm512_loadu_ps(a.as_ptr().add(i) as *const f32);
-                let b_vec = _mm512_loadu_ps(b.as_ptr().add(i) as *const f32);
-                // fmadd: multiply and add in one instruction
-                sum = _mm512_fmadd_ps(a_vec, b_vec, sum);
-            }
-        }
+        // // Calculate how many complete 16-element chunks we can process
+        // let chunk_count = len / 16;
 
-        // Horizontal sum
-        let result = _mm512_reduce_add_ps(sum);
+        // let chunk_size = 16;
 
-        // Handle remaining elements
-        let mut scalar_sum = result;
-        for i in (a.len() - a.len() % 16)..a.len() {
-            scalar_sum += a[i] * b[i];
-        }
+        // let _: () = a
+        //     .into_par_iter()
+        //     .chunks(chunk_size)
+        //     .zip_eq(b.into_par_iter().chunks(chunk_size))
+        //     .map(|(a_chunk, b_chunk)| {
+        //         let mut sum = _mm512_setzero_ps();
 
-        scalar_sum
+        //         let a_vec = _mm512_loadu_ps(a_chunk.as_ptr());
+        //         let b_vec = _mm512_loadu_ps(b_chunk.as_ptr());
+
+        //         // fmadd: multiply and add in one instruction
+        //         sum = _mm512_fmadd_ps(a_vec, b_vec, sum);
+
+        //         // sum
+        //     })
+        //     .collect();
+        0.0
+
+        // // Process 16 elements at a time using AVX-512F
+        // for i in 0..chunk_count {
+        //     println!("full chunks");
+
+        //     let offset = i * 16;
+        //     let a_vec = _mm512_loadu_ps(a.as_ptr().add(offset));
+        //     let b_vec = _mm512_loadu_ps(b.as_ptr().add(offset));
+
+        //     // fmadd: multiply and add in one instruction
+        //     sum = _mm512_fmadd_ps(a_vec, b_vec, sum);
+        // }
+
+        // // Horizontal sum of all elements in the vector
+        // let mut result = _mm512_reduce_add_ps(sum);
+
+        // // Handle remaining elements that didn't fit in a full vector
+        // let remaining_start = chunk_count * 16;
+
+        // if remaining_start < len {
+        //     println!("using masks");
+        //     // Determine how many elements remain
+        //     let remainder = len - remaining_start;
+
+        //     // Create mask for remaining elements
+        //     let mask: __mmask16 = (1 << remainder) - 1;
+
+        //     // Load remaining elements with mask
+        //     let a_vec = _mm512_maskz_loadu_ps(mask, a.as_slice().as_ptr().add(remaining_start));
+        //     let b_vec = _mm512_maskz_loadu_ps(mask, b.as_slice().as_ptr().add(remaining_start));
+
+        //     // Compute product and add to result
+        //     let partial_sum = _mm512_fmadd_ps(a_vec, b_vec, _mm512_setzero_ps());
+        //     result += _mm512_reduce_add_ps(partial_sum);
+        // }
+
+        // result
     }
-    // println!("Here I am");
-    // 0.0
 }
 
 #[cfg(avx2)]
