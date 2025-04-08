@@ -1,4 +1,4 @@
-// #![feature(stdarch_x86_avx512)]
+#![feature(stdarch_x86_avx512)]
 
 use std::arch::x86_64::*;
 
@@ -19,18 +19,18 @@ fn main() {
     println!("  - Using baseline implementation (no SIMD optimizations)");
 
     // Example operation: vector dot product
-    let n: usize = 18;
+    let n: usize = 16 * 1000;
 
     let a = vec![1.0f32; n];
     let b = vec![10.0f32; n];
 
     let result = dot_product(&a, &b);
 
-    println!("Dot product result: {}", result);
+    println!("Dot product result: {:?}", result);
 }
 
 // Public function that uses the best available implementation (selected at compile time)
-pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
+pub fn dot_product(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
     // The compiler will select only one of these implementations
@@ -50,40 +50,48 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 }
 
 // Implementation functions (only one will be compiled into the final binary)
-
+#[rustversion::nightly]
 #[cfg(avx512)]
 #[inline(always)]
-fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> f32 {
-    use rayon::iter::{
-        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-    };
+fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+    use std::alloc::{Layout, alloc};
+
+    use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
     unsafe {
-        // let len = a.len();
-        // let mut sum = _mm512_setzero_ps();
+        let chunk_size = 16;
 
-        // // Calculate how many complete 16-element chunks we can process
-        // let chunk_count = len / 16;
+        let sum: Vec<f32> = a
+            .into_par_iter()
+            .chunks(chunk_size)
+            .zip_eq(b.into_par_iter().chunks(chunk_size))
+            .map(|(a_chunk, b_chunk)| {
+                let mut c = _mm512_setzero_ps();
 
-        // let chunk_size = 16;
+                let a = _mm512_loadu_ps(a_chunk.as_ptr());
+                let b = _mm512_loadu_ps(b_chunk.as_ptr());
 
-        // let _: () = a
-        //     .into_par_iter()
-        //     .chunks(chunk_size)
-        //     .zip_eq(b.into_par_iter().chunks(chunk_size))
-        //     .map(|(a_chunk, b_chunk)| {
-        //         let mut sum = _mm512_setzero_ps();
+                // fmadd: multiply and add in one instruction
+                c = _mm512_fmadd_ps(a, b, c);
 
-        //         let a_vec = _mm512_loadu_ps(a_chunk.as_ptr());
-        //         let b_vec = _mm512_loadu_ps(b_chunk.as_ptr());
+                // Allocate space to store the sum
+                let layout = Layout::from_size_align(64, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
+                let ptr = alloc(layout) as *mut f32;
 
-        //         // fmadd: multiply and add in one instruction
-        //         sum = _mm512_fmadd_ps(a_vec, b_vec, sum);
+                // Check if allocation succeeded
+                if ptr.is_null() {
+                    panic!("Memory allocation failed");
+                }
 
-        //         // sum
-        //     })
-        //     .collect();
-        0.0
+                // Store the values into the array
+                _mm512_store_ps(ptr, c);
+
+                Vec::from_raw_parts(ptr, 16, 16)
+            })
+            .flatten()
+            .collect();
+
+        sum
 
         // // Process 16 elements at a time using AVX-512F
         // for i in 0..chunk_count {
@@ -122,6 +130,14 @@ fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> f32 {
 
         // result
     }
+}
+
+// Implementation functions (only one will be compiled into the final binary)
+#[rustversion::stable]
+#[cfg(avx512)]
+#[inline(always)]
+fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+    vec![0.0; 4]
 }
 
 #[cfg(avx2)]
