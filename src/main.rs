@@ -22,24 +22,24 @@ fn main() {
     println!("  - Using baseline implementation (no SIMD optimizations)");
 
     // Example operation: vector dot product
-    let n: usize = 72;
+    let n: usize = 100_000_000;
 
     let a = vec![4.0f32; n];
     let b = vec![2.0f32; n];
 
     let result = dot_product(&a, &b);
 
-    for ((res, a), b) in result
-        .as_slice()
-        .chunks(16)
-        .zip(a.as_slice().chunks(16))
-        .zip(b.as_slice().chunks(16))
-    {
-        println!("{:?}", a);
-        println!("{:?}", b);
-        println!("{:?}", res);
-        println!();
-    }
+    // for ((res, a), b) in result
+    //     .as_slice()
+    //     .chunks(16)
+    //     .zip(a.as_slice().chunks(16))
+    //     .zip(b.as_slice().chunks(16))
+    // {
+    //     println!("{:?}", a);
+    //     println!("{:?}", b);
+    //     println!("{:?}", res);
+    //     println!();
+    // }
     // println!("Dot product result: {:?} --> {}", result, result.len());
     println!("Dot product result:  --> {}", result.len());
 }
@@ -148,25 +148,23 @@ fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
 #[cfg(avx512)]
 #[inline(always)]
 fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
-    unsafe {
-        let chunk_size = 16;
+    let chunk_size = 16;
 
-        let sum: Vec<f32> = a
-            .into_par_iter()
-            .chunks(chunk_size)
-            .zip_eq(b.into_par_iter().chunks(chunk_size))
-            .map(|(a_chunk, b_chunk)| {
-                if a_chunk.len() == chunk_size {
-                    fmadd_f32x16(a_chunk, b_chunk)
-                } else {
-                    fmadd_f32x16_partial(a_chunk, b_chunk)
-                }
-            })
-            .flatten()
-            .collect();
+    let sum: Vec<f32> = a
+        .into_par_iter()
+        .chunks(chunk_size)
+        .zip_eq(b.into_par_iter().chunks(chunk_size))
+        .map(|(a_chunk, b_chunk)| {
+            if a_chunk.len() == chunk_size {
+                fmadd_f32x16(a_chunk, b_chunk)
+            } else {
+                fmadd_f32x16_partial(a_chunk, b_chunk)
+            }
+        })
+        .flatten()
+        .collect();
 
-        sum
-    }
+    sum
 }
 
 // Implementation functions (only one will be compiled into the final binary)
@@ -268,4 +266,23 @@ fn print_all_cpu_features() {
     println!("  AVX2: {}", is_x86_feature_detected!("avx2"));
     println!("  SSE4.1: {}", is_x86_feature_detected!("sse4.1"));
     println!("  SSE2: {}", is_x86_feature_detected!("sse2"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vector_addition() {
+        // Example operation: vector dot product
+        let n: usize = 100;
+
+        let a = vec![4.0f32; n];
+        let b = vec![2.0f32; n];
+        let c = vec![8.0f32; n];
+
+        let result = dot_product(&a, &b);
+
+        assert_eq!(result, c);
+    }
 }
