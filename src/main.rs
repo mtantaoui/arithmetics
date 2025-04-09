@@ -87,7 +87,7 @@ fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
         c = _mm512_fmadd_ps(a, b, c);
 
         // Allocate space to store the sum
-        let layout = Layout::from_size_align(chunk_size * 4, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
+        let layout = Layout::from_size_align(chunk_size * std::mem::size_of::<f32>(), 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
         let ptr = alloc(layout) as *mut f32;
 
         // Check if allocation succeeded
@@ -128,7 +128,7 @@ fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
         c = _mm512_fmadd_ps(a, b, c);
 
         // Allocate space to store the sum
-        let layout = Layout::from_size_align(chunk_size * 4, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
+        let layout = Layout::from_size_align(chunk_size * std::mem::size_of::<f32>(), 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
         let ptr = alloc(layout) as *mut f32;
 
         // Check if allocation succeeded
@@ -136,8 +136,8 @@ fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
             panic!("Memory allocation failed");
         }
 
-        // Store the values into the array
-        _mm512_store_ps(ptr, c);
+        // Store the values into the array with mask
+        _mm512_mask_store_ps(ptr, mask, c);
 
         Vec::from_raw_parts(ptr, chunk_size, chunk_size)
     }
