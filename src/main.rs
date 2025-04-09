@@ -1,6 +1,9 @@
 #![feature(stdarch_x86_avx512)]
 
+use std::alloc::{Layout, alloc};
 use std::arch::x86_64::*;
+
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 fn main() {
     println!("Running with the following CPU features:");
@@ -19,14 +22,26 @@ fn main() {
     println!("  - Using baseline implementation (no SIMD optimizations)");
 
     // Example operation: vector dot product
-    let n: usize = 16 * 1000;
+    let n: usize = 72;
 
-    let a = vec![1.0f32; n];
-    let b = vec![10.0f32; n];
+    let a = vec![4.0f32; n];
+    let b = vec![2.0f32; n];
 
     let result = dot_product(&a, &b);
 
-    println!("Dot product result: {:?}", result);
+    for ((res, a), b) in result
+        .as_slice()
+        .chunks(16)
+        .zip(a.as_slice().chunks(16))
+        .zip(b.as_slice().chunks(16))
+    {
+        println!("{:?}", a);
+        println!("{:?}", b);
+        println!("{:?}", res);
+        println!();
+    }
+    // println!("Dot product result: {:?} --> {}", result, result.len());
+    println!("Dot product result:  --> {}", result.len());
 }
 
 // Public function that uses the best available implementation (selected at compile time)
@@ -49,15 +64,90 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> Vec<f32> {
     return dot_product_baseline(a, b);
 }
 
+#[rustversion::nightly]
+#[cfg(avx512)]
+#[inline(always)]
+fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
+    assert_eq!(
+        a_chunk.len(),
+        b_chunk.len(),
+        "Vectors must be the same length"
+    );
+    assert_eq!(a_chunk.len(), 16, "Vectors must be the same length");
+
+    let chunk_size = 16;
+
+    unsafe {
+        let mut c = _mm512_setzero_ps();
+
+        let a = _mm512_loadu_ps(a_chunk.as_ptr());
+        let b = _mm512_loadu_ps(b_chunk.as_ptr());
+
+        // fmadd: multiply and add in one instruction
+        c = _mm512_fmadd_ps(a, b, c);
+
+        // Allocate space to store the sum
+        let layout = Layout::from_size_align(chunk_size * 4, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
+        let ptr = alloc(layout) as *mut f32;
+
+        // Check if allocation succeeded
+        if ptr.is_null() {
+            panic!("Memory allocation failed");
+        }
+
+        // Store the values into the array
+        _mm512_store_ps(ptr, c);
+
+        Vec::from_raw_parts(ptr, chunk_size, chunk_size)
+    }
+}
+
+#[rustversion::nightly]
+#[cfg(avx512)]
+#[inline(always)]
+fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
+    assert_eq!(
+        a_chunk.len(),
+        b_chunk.len(),
+        "Vectors must be the same length"
+    );
+
+    let chunk_size = a_chunk.len();
+
+    unsafe {
+        // Create mask for remaining elements
+        let mask: __mmask16 = (1 << a_chunk.len()) - 1;
+
+        let mut c = _mm512_setzero_ps();
+
+        // Load remaining elements with mask
+        let a = _mm512_maskz_loadu_ps(mask, a_chunk.as_ptr());
+        let b = _mm512_maskz_loadu_ps(mask, b_chunk.as_ptr());
+
+        // fmadd: multiply and add in one instruction
+        c = _mm512_fmadd_ps(a, b, c);
+
+        // Allocate space to store the sum
+        let layout = Layout::from_size_align(chunk_size * 4, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
+        let ptr = alloc(layout) as *mut f32;
+
+        // Check if allocation succeeded
+        if ptr.is_null() {
+            panic!("Memory allocation failed");
+        }
+
+        // Store the values into the array
+        _mm512_store_ps(ptr, c);
+
+        Vec::from_raw_parts(ptr, chunk_size, chunk_size)
+    }
+}
+
 // Implementation functions (only one will be compiled into the final binary)
 #[rustversion::nightly]
 #[cfg(avx512)]
 #[inline(always)]
 fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
-    use std::alloc::{Layout, alloc};
-
-    use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-
     unsafe {
         let chunk_size = 16;
 
@@ -66,69 +156,16 @@ fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
             .chunks(chunk_size)
             .zip_eq(b.into_par_iter().chunks(chunk_size))
             .map(|(a_chunk, b_chunk)| {
-                let mut c = _mm512_setzero_ps();
-
-                let a = _mm512_loadu_ps(a_chunk.as_ptr());
-                let b = _mm512_loadu_ps(b_chunk.as_ptr());
-
-                // fmadd: multiply and add in one instruction
-                c = _mm512_fmadd_ps(a, b, c);
-
-                // Allocate space to store the sum
-                let layout = Layout::from_size_align(64, 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
-                let ptr = alloc(layout) as *mut f32;
-
-                // Check if allocation succeeded
-                if ptr.is_null() {
-                    panic!("Memory allocation failed");
+                if a_chunk.len() == chunk_size {
+                    fmadd_f32x16(a_chunk, b_chunk)
+                } else {
+                    fmadd_f32x16_partial(a_chunk, b_chunk)
                 }
-
-                // Store the values into the array
-                _mm512_store_ps(ptr, c);
-
-                Vec::from_raw_parts(ptr, 16, 16)
             })
             .flatten()
             .collect();
 
         sum
-
-        // // Process 16 elements at a time using AVX-512F
-        // for i in 0..chunk_count {
-        //     println!("full chunks");
-
-        //     let offset = i * 16;
-        //     let a_vec = _mm512_loadu_ps(a.as_ptr().add(offset));
-        //     let b_vec = _mm512_loadu_ps(b.as_ptr().add(offset));
-
-        //     // fmadd: multiply and add in one instruction
-        //     sum = _mm512_fmadd_ps(a_vec, b_vec, sum);
-        // }
-
-        // // Horizontal sum of all elements in the vector
-        // let mut result = _mm512_reduce_add_ps(sum);
-
-        // // Handle remaining elements that didn't fit in a full vector
-        // let remaining_start = chunk_count * 16;
-
-        // if remaining_start < len {
-        //     println!("using masks");
-        //     // Determine how many elements remain
-        //     let remainder = len - remaining_start;
-
-        //     // Create mask for remaining elements
-        //     let mask: __mmask16 = (1 << remainder) - 1;
-
-        //     // Load remaining elements with mask
-        //     let a_vec = _mm512_maskz_loadu_ps(mask, a.as_slice().as_ptr().add(remaining_start));
-        //     let b_vec = _mm512_maskz_loadu_ps(mask, b.as_slice().as_ptr().add(remaining_start));
-
-        //     // Compute product and add to result
-        //     let partial_sum = _mm512_fmadd_ps(a_vec, b_vec, _mm512_setzero_ps());
-        //     result += _mm512_reduce_add_ps(partial_sum);
-        // }
-
-        // result
     }
 }
 
