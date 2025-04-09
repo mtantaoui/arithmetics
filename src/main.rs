@@ -1,6 +1,5 @@
 #![feature(stdarch_x86_avx512)]
 
-use std::alloc::{Layout, alloc};
 use std::arch::x86_64::*;
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
@@ -22,37 +21,43 @@ fn main() {
     println!("  - Using baseline implementation (no SIMD optimizations)");
 
     // Example operation: vector dot product
-    let n: usize = 100_000_000;
+    let n: usize = 100;
 
     let a = vec![4.0f32; n];
     let b = vec![2.0f32; n];
 
-    let result = dot_product(&a, &b);
+    // let result = fmadd(&a, &b);
+    let result = add(&a, &b);
 
-    // for ((res, a), b) in result
-    //     .as_slice()
-    //     .chunks(16)
-    //     .zip(a.as_slice().chunks(16))
-    //     .zip(b.as_slice().chunks(16))
-    // {
-    //     println!("{:?}", a);
-    //     println!("{:?}", b);
-    //     println!("{:?}", res);
-    //     println!();
-    // }
-    // println!("Dot product result: {:?} --> {}", result, result.len());
+    for ((res, a), b) in result
+        .as_slice()
+        .chunks(16)
+        .zip(a.as_slice().chunks(16))
+        .zip(b.as_slice().chunks(16))
+    {
+        println!("{:?}", a);
+        println!("{:?}", b);
+        println!("{:?}", res);
+        println!();
+    }
+
+    println!(
+        "Dot product result: {:?} --> {}",
+        result.first(),
+        result.len()
+    );
     println!("Dot product result:  --> {}", result.len());
 }
 
 // Public function that uses the best available implementation (selected at compile time)
-pub fn dot_product(a: &[f32], b: &[f32]) -> Vec<f32> {
+pub fn fmadd(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
     // The compiler will select only one of these implementations
     // based on the cfg flags set by build.rs
 
     #[cfg(avx512)]
-    return dot_product_avx512f(a.to_vec(), b.to_vec());
+    return fmadd_avx512f(a.to_vec(), b.to_vec());
 
     #[cfg(avx2)]
     return dot_product_avx2(a, b);
@@ -64,41 +69,43 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> Vec<f32> {
     return dot_product_baseline(a, b);
 }
 
+// Public function that uses the best available implementation (selected at compile time)
+pub fn add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    assert_eq!(a.len(), b.len(), "Vectors must be the same length");
+
+    // The compiler will select only one of these implementations
+    // based on the cfg flags set by build.rs
+    #[cfg(avx512)]
+    return add_avx512f(a.to_vec(), b.to_vec());
+}
+
 #[rustversion::nightly]
 #[cfg(avx512)]
 #[inline(always)]
 fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
-    assert_eq!(
-        a_chunk.len(),
-        b_chunk.len(),
-        "Vectors must be the same length"
-    );
-    assert_eq!(a_chunk.len(), 16, "Vectors must be the same length");
-
-    let chunk_size = 16;
-
     unsafe {
-        let mut c = _mm512_setzero_ps();
+        assert_eq!(
+            a_chunk.len(),
+            b_chunk.len(),
+            "Vectors must be the same length"
+        );
+        assert!(
+            a_chunk.len() == 16,
+            "Chunk length must be == 16 for AVX-512"
+        );
+
+        let chunk_size = a_chunk.len();
 
         let a = _mm512_loadu_ps(a_chunk.as_ptr());
         let b = _mm512_loadu_ps(b_chunk.as_ptr());
 
-        // fmadd: multiply and add in one instruction
-        c = _mm512_fmadd_ps(a, b, c);
+        // Fused multiply-add: a * b + 0.0
+        let c = _mm512_fmadd_ps(a, b, _mm512_setzero_ps());
 
-        // Allocate space to store the sum
-        let layout = Layout::from_size_align(chunk_size * std::mem::size_of::<f32>(), 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
-        let ptr = alloc(layout) as *mut f32;
+        let mut result = vec![0f32; chunk_size];
+        _mm512_storeu_ps(result.as_mut_ptr(), c);
 
-        // Check if allocation succeeded
-        if ptr.is_null() {
-            panic!("Memory allocation failed");
-        }
-
-        // Store the values into the array
-        _mm512_store_ps(ptr, c);
-
-        Vec::from_raw_parts(ptr, chunk_size, chunk_size)
+        result
     }
 }
 
@@ -106,40 +113,30 @@ fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
 #[cfg(avx512)]
 #[inline(always)]
 fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
-    assert_eq!(
-        a_chunk.len(),
-        b_chunk.len(),
-        "Vectors must be the same length"
-    );
-
-    let chunk_size = a_chunk.len();
-
     unsafe {
-        // Create mask for remaining elements
-        let mask: __mmask16 = (1 << a_chunk.len()) - 1;
+        assert_eq!(
+            a_chunk.len(),
+            b_chunk.len(),
+            "Vectors must be the same length"
+        );
+        assert!(
+            a_chunk.len() <= 16,
+            "Chunk length must be <= 16 for AVX-512"
+        );
 
-        let mut c = _mm512_setzero_ps();
+        let chunk_size = a_chunk.len();
+        let mask: __mmask16 = (1 << chunk_size) - 1;
 
-        // Load remaining elements with mask
         let a = _mm512_maskz_loadu_ps(mask, a_chunk.as_ptr());
         let b = _mm512_maskz_loadu_ps(mask, b_chunk.as_ptr());
 
-        // fmadd: multiply and add in one instruction
-        c = _mm512_fmadd_ps(a, b, c);
+        // Fused multiply-add: a * b + 0.0
+        let c = _mm512_maskz_fmadd_ps(mask, a, b, _mm512_setzero_ps());
 
-        // Allocate space to store the sum
-        let layout = Layout::from_size_align(chunk_size * std::mem::size_of::<f32>(), 64).unwrap(); // 16 floats * 4 bytes = 64 bytes
-        let ptr = alloc(layout) as *mut f32;
+        let mut result = vec![0f32; chunk_size];
+        _mm512_mask_storeu_ps(result.as_mut_ptr(), mask, c);
 
-        // Check if allocation succeeded
-        if ptr.is_null() {
-            panic!("Memory allocation failed");
-        }
-
-        // Store the values into the array with mask
-        _mm512_mask_store_ps(ptr, mask, c);
-
-        Vec::from_raw_parts(ptr, chunk_size, chunk_size)
+        result
     }
 }
 
@@ -147,7 +144,7 @@ fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
 #[rustversion::nightly]
 #[cfg(avx512)]
 #[inline(always)]
-fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+fn fmadd_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
     let chunk_size = 16;
 
     let sum: Vec<f32> = a
@@ -167,6 +164,89 @@ fn dot_product_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
     sum
 }
 
+#[rustversion::nightly]
+#[cfg(avx512)]
+#[inline(always)]
+fn add_f32x16(a_chunk: &[f32], b_chunk: &[f32]) -> Vec<f32> {
+    unsafe {
+        assert_eq!(
+            a_chunk.len(),
+            b_chunk.len(),
+            "Vectors must be the same length"
+        );
+        assert!(
+            a_chunk.len() == 16,
+            "Chunk length must be == 16 for AVX-512"
+        );
+
+        let chunk_size = a_chunk.len();
+
+        let a = _mm512_loadu_ps(a_chunk.as_ptr());
+        let b = _mm512_loadu_ps(b_chunk.as_ptr());
+
+        // Fused multiply-add: a * b + 0.0
+        let c = _mm512_add_ps(a, b);
+
+        let mut result = vec![0f32; chunk_size];
+        _mm512_storeu_ps(result.as_mut_ptr(), c);
+
+        result
+    }
+}
+
+#[rustversion::nightly]
+#[cfg(avx512)]
+#[inline(always)]
+fn add_f32x16_partial(a_chunk: &[f32], b_chunk: &[f32]) -> Vec<f32> {
+    unsafe {
+        assert_eq!(
+            a_chunk.len(),
+            b_chunk.len(),
+            "Vectors must be the same length"
+        );
+        assert!(
+            a_chunk.len() <= 16,
+            "Chunk length must be <= 16 for AVX-512"
+        );
+
+        let chunk_size = a_chunk.len();
+        let mask: __mmask16 = (1 << chunk_size) - 1;
+
+        let a = _mm512_maskz_loadu_ps(mask, a_chunk.as_ptr());
+        let b = _mm512_maskz_loadu_ps(mask, b_chunk.as_ptr());
+
+        // Fused multiply-add: a * b + 0.0
+        let c = _mm512_maskz_add_ps(mask, a, b);
+
+        let mut result = vec![0f32; chunk_size];
+        _mm512_mask_storeu_ps(result.as_mut_ptr(), mask, c);
+
+        result
+    }
+}
+
+#[rustversion::nightly]
+#[cfg(avx512)]
+#[inline(always)]
+fn add_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+    let chunk_size = 16;
+
+    let sum: Vec<f32> = a
+        .into_par_iter()
+        .chunks(chunk_size)
+        .zip_eq(b.into_par_iter().chunks(chunk_size))
+        .map(|(a_chunk, b_chunk)| {
+            if a_chunk.len() == chunk_size {
+                add_f32x16(a_chunk.as_slice(), b_chunk.as_slice())
+            } else {
+                add_f32x16_partial(a_chunk.as_slice(), b_chunk.as_slice())
+            }
+        })
+        .flatten()
+        .collect();
+
+    sum
+}
 // Implementation functions (only one will be compiled into the final binary)
 #[rustversion::stable]
 #[cfg(avx512)]
@@ -273,16 +353,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vector_addition() {
+    fn test_vector_add() {
         // Example operation: vector dot product
         let n: usize = 100;
 
         let a = vec![4.0f32; n];
         let b = vec![2.0f32; n];
-        let c = vec![8.0f32; n];
+        let c = vec![6.0f32; n];
 
-        let result = dot_product(&a, &b);
+        let result = add(&a, &b);
 
         assert_eq!(result, c);
     }
+
+    // #[test]
+    // fn test_vector_fused_multiply_add() {
+    //     // Example operation: vector dot product
+    //     let n: usize = 100;
+
+    //     let a = vec![4.0f32; n];
+    //     let b = vec![2.0f32; n];
+    //     let c = vec![8.0f32; n];
+
+    //     let result = fmadd(&a, &b);
+
+    //     assert_eq!(result, c);
+    // }
 }
