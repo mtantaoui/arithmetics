@@ -352,31 +352,32 @@ fn print_all_cpu_features() {
 mod tests {
     use super::*;
 
+    const N: usize = 1_000_000;
+
     #[test]
     fn test_vector_add() {
         // Example operation: vector dot product
-        let n: usize = 100;
 
-        let a = vec![4.0f32; n];
-        let b = vec![2.0f32; n];
-        let c = vec![6.0f32; n];
+        let a = vec![4.0f32; N];
+        let b = vec![2.0f32; N];
+        let c = vec![6.0f32; N];
 
         let result = add(&a, &b);
 
         assert_eq!(result, c);
     }
 
-    // #[test]
-    // fn test_vector_fused_multiply_add() {
-    //     // Example operation: vector dot product
-    //     let n: usize = 100;
+    #[test]
+    fn test_vector_fused_multiply_add() {
+        // Example operation: vector dot product
+        let n: usize = 100;
 
-    //     let a = vec![4.0f32; n];
-    //     let b = vec![2.0f32; n];
-    //     let c = vec![8.0f32; n];
+        let a = vec![4.0f32; N];
+        let b = vec![2.5f32; N];
+        let c = vec![10.0f32; N];
 
-    //     let result = fmadd(&a, &b);
+        let result = fmadd(&a, &b);
 
-    //     assert_eq!(result, c);
-    // }
+        assert_eq!(result, c);
+    }
 }
