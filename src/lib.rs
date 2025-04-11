@@ -1,3 +1,4 @@
-#![feature(stdarch_x86_avx512)]
+#![cfg_attr(rustc_channel = "nightly", feature(stdarch_x86_avx512))]
 
-mod f32x16;
+#[cfg(all(avx512, rustc_channel = "nightly"))]
+pub mod f32x16_nightly;

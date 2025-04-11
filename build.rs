@@ -12,7 +12,7 @@ struct CpuFeature {
 }
 
 impl CpuFeature {
-    // define priority order between CPU Features
+    // Define priority order between CPU Features (higher number = higher priority)
     fn priority(&self) -> usize {
         match self.name {
             "avx512f" => 0,
@@ -22,10 +22,9 @@ impl CpuFeature {
         }
     }
 
-    // Groups all supported CPU features that uses optimizations in this crate
-    // TODO: Do I have to define another method for ARM architectures ???
+    // Groups all supported CPU features that use optimizations in this crate
     fn features() -> Vec<CpuFeature> {
-        let features = vec![
+        vec![
             CpuFeature {
                 name: "sse41",
                 rustc_flag: "+sse4.1",
@@ -44,9 +43,7 @@ impl CpuFeature {
                 cfg_flag: "avx2",
                 detected: false,
             },
-        ];
-
-        features
+        ]
     }
 }
 
@@ -62,63 +59,125 @@ impl PartialOrd for CpuFeature {
     }
 }
 
-fn main() {
-    // Define the CPU features we're interested in (in order of preference)
-    let mut features = CpuFeature::features();
-
-    // Determine if we're cross-compiling
-    let host = env::var("HOST").unwrap_or_default();
-    let target = env::var("TARGET").unwrap_or_default();
-    let is_native_build = host == target;
-
-    // Only run CPU detection for native builds
-    // CPU features of build machine may be different from target machine
-    if is_native_build {
-        detect_cpu_features(&mut features);
-    }
-
-    // Set cargo flags for conditional compilation
-    emit_cargo_config(&mut features);
+// Feature detection trait to make implementations more modular
+trait CpuFeatureDetector {
+    fn detect_features(&self, features: &mut [CpuFeature]);
+    fn is_applicable(&self) -> bool;
 }
 
-fn detect_cpu_features(features: &mut [CpuFeature]) {
-    // Detect features based on the current OS
-    if cfg!(target_os = "linux") {
-        detect_features_linux(features);
-    } else if cfg!(target_os = "windows") {
-        todo!();
-    } else if cfg!(target_os = "macos") {
-        detect_features_macos(features);
-    }
-}
-
-fn detect_features_linux(features: &mut [CpuFeature]) {
-    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
-        for feature in features.iter_mut() {
-            feature.detected = cpuinfo.contains(feature.name);
+// Linux CPU feature detector
+struct LinuxDetector;
+impl CpuFeatureDetector for LinuxDetector {
+    fn detect_features(&self, features: &mut [CpuFeature]) {
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            let contents = cpuinfo.to_lowercase();
+            for feature in features.iter_mut() {
+                feature.detected = contents.contains(feature.name);
+            }
         }
     }
+
+    fn is_applicable(&self) -> bool {
+        cfg!(target_os = "linux")
+    }
 }
 
-fn detect_features_macos(features: &mut [CpuFeature]) {
-    let output = Command::new("sysctl").args(["-a"]).output();
+// macOS CPU feature detector
+struct MacOSDetector;
+impl CpuFeatureDetector for MacOSDetector {
+    fn detect_features(&self, features: &mut [CpuFeature]) {
+        let output = Command::new("sysctl").args(["-a"]).output();
 
-    if let Ok(output) = output {
-        let sysctl_output = String::from_utf8_lossy(&output.stdout).to_lowercase();
+        if let Ok(output) = output {
+            let contents = String::from_utf8_lossy(&output.stdout).to_lowercase();
 
-        for feature in features.iter_mut() {
-            match feature.name {
-                "avx512f" => feature.detected = sysctl_output.contains("avx512f"),
-                "avx2" => feature.detected = sysctl_output.contains("avx2"),
-                "sse41" => feature.detected = sysctl_output.contains("sse4.1"),
-                _ => {}
+            for feature in features.iter_mut() {
+                match feature.name {
+                    "avx512f" => feature.detected = contents.contains("hw.optional.avx512f: 1"),
+                    "avx2" => feature.detected = contents.contains("hw.optional.avx2: 1"),
+                    "sse41" => feature.detected = contents.contains("hw.optional.sse4_1: 1"),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn is_applicable(&self) -> bool {
+        cfg!(target_os = "macos")
+    }
+}
+
+// Factory that creates the appropriate detector for the current OS
+struct PlatformDetector;
+impl PlatformDetector {
+    fn cpu_features_detectors() -> Vec<Box<dyn CpuFeatureDetector>> {
+        vec![Box::new(LinuxDetector), Box::new(MacOSDetector)]
+    }
+
+    fn compiler_channel() -> String {
+        let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+        let output = Command::new(rustc)
+            .args(["--version", "--verbose"])
+            .output()
+            .expect("Failed to execute rustc");
+
+        let version_info = String::from_utf8_lossy(&output.stdout);
+
+        if version_info.contains("nightly") {
+            "nightly".to_string()
+        } else if version_info.contains("beta") {
+            "beta".to_string()
+        } else {
+            "stable".to_string()
+        }
+    }
+
+    fn detect_cpu_features(features: &mut [CpuFeature]) {
+        // Get detectors for all supported platforms
+        let detectors = Self::cpu_features_detectors();
+
+        // Find the applicable detector and use it
+        for detector in detectors {
+            if detector.is_applicable() {
+                detector.detect_features(features);
+                break;
             }
         }
     }
 }
 
-fn emit_cargo_config(features: &mut [CpuFeature]) {
-    // sorting features by priority
+// fn detect_rustc_channel() -> String {
+
+fn main() {
+    // Detect rustc channel (stable, beta, nightly)
+    let rustc_channel = PlatformDetector::compiler_channel();
+
+    // Create a flag for modules that can be used in nighlty build only
+    // Some features like avx512 are available only with nighlty build
+    println!("cargo:rustc-cfg=rustc_channel=\"{}\"", rustc_channel);
+    // Disable flag warnings
+    println!("cargo::rustc-check-cfg=cfg(rustc_channel, values(\"nightly\"))");
+
+    // Define the CPU features we're interested in
+    let mut features = CpuFeature::features();
+
+    // Determine if we're cross-compiling
+    let host = env::var("HOST").unwrap_or_default();
+    let target = env::var("TARGET").unwrap_or_default();
+
+    let is_native_build = host == target;
+
+    // Only run CPU detection for native builds
+    if is_native_build {
+        PlatformDetector::detect_cpu_features(&mut features);
+    }
+
+    // Pass RUSTFLAGS for enabling target features
+    apply_detected_cpu_features(&mut features);
+}
+
+fn apply_detected_cpu_features(features: &mut [CpuFeature]) {
+    // Sort features by priority (highest first)
     features.sort();
 
     // Find and use the highest detected feature (if any)
@@ -133,13 +192,13 @@ fn emit_cargo_config(features: &mut [CpuFeature]) {
         })
         .unwrap_or_else(|| "baseline");
 
+    println!("cargo:rustc-cfg={}", cfg_flag);
+
     features.iter().for_each(|cpu_feature| {
         // Avoid `#[cfg(...)]` warning by registering it as a known config
         println!("cargo::rustc-check-cfg=cfg({})", cpu_feature.cfg_flag);
     });
 
-    // Avoid `#[cfg(...)]` warning by registering it as a known config
+    // Avoid `#[cfg(...)]` on baseline implementations
     println!("cargo::rustc-check-cfg=cfg(baseline)");
-
-    println!("cargo:rustc-cfg={}", cfg_flag);
 }
