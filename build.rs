@@ -9,6 +9,7 @@ struct CpuFeature {
     rustc_flag: &'static str,
     cfg_flag: &'static str,
     detected: bool,
+    nightly_only: bool,
 }
 
 impl CpuFeature {
@@ -23,6 +24,7 @@ impl CpuFeature {
     }
 
     // Groups all supported CPU features that use optimizations in this crate
+    // used in stable build
     fn features() -> Vec<CpuFeature> {
         vec![
             CpuFeature {
@@ -30,18 +32,42 @@ impl CpuFeature {
                 rustc_flag: "+sse4.1",
                 cfg_flag: "sse",
                 detected: false,
-            },
-            CpuFeature {
-                name: "avx512f",
-                rustc_flag: "+avx512f",
-                cfg_flag: "avx512",
-                detected: false,
+                nightly_only: false,
             },
             CpuFeature {
                 name: "avx2",
                 rustc_flag: "+avx2",
                 cfg_flag: "avx2",
                 detected: false,
+                nightly_only: false,
+            },
+        ]
+    }
+
+    // Groups all supported CPU features that use optimizations in this crate
+    // used in stable build
+    fn nightly_features() -> Vec<CpuFeature> {
+        vec![
+            CpuFeature {
+                name: "sse41",
+                rustc_flag: "+sse4.1",
+                cfg_flag: "sse",
+                detected: false,
+                nightly_only: false,
+            },
+            CpuFeature {
+                name: "avx512f",
+                rustc_flag: "+avx512f",
+                cfg_flag: "avx512",
+                detected: false,
+                nightly_only: true,
+            },
+            CpuFeature {
+                name: "avx2",
+                rustc_flag: "+avx2",
+                cfg_flag: "avx2",
+                detected: false,
+                nightly_only: false,
             },
         ]
     }
@@ -146,8 +172,6 @@ impl PlatformDetector {
     }
 }
 
-// fn detect_rustc_channel() -> String {
-
 fn main() {
     // Detect rustc channel (stable, beta, nightly)
     let rustc_channel = PlatformDetector::compiler_channel();
@@ -155,11 +179,17 @@ fn main() {
     // Create a flag for modules that can be used in nighlty build only
     // Some features like avx512 are available only with nighlty build
     println!("cargo:rustc-cfg=rustc_channel=\"{}\"", rustc_channel);
-    // Disable flag warnings
-    println!("cargo::rustc-check-cfg=cfg(rustc_channel, values(\"nightly\"))");
+    // Disable flag warnings for build
+    println!("cargo::rustc-check-cfg=cfg(rustc_channel, values(\"nightly\", \"stable\"))");
+
+    let nightly_build = rustc_channel == "nightly";
 
     // Define the CPU features we're interested in
-    let mut features = CpuFeature::features();
+    let mut features = if nightly_build {
+        CpuFeature::nightly_features()
+    } else {
+        CpuFeature::features()
+    };
 
     // Determine if we're cross-compiling
     let host = env::var("HOST").unwrap_or_default();
