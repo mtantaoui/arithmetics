@@ -1,116 +1,122 @@
 use rayon::prelude::*;
 use std::arch::x86_64::*;
 
-// const SIZE: usize = 16;
+const SIZE: usize = 16;
 
-// // Define f32x16 using two f32x8
-// #[derive(Copy, Clone, Debug)]
-// pub struct F32x16 {
-//     size: usize,
+// Define f32x16 using two f32x8
+#[derive(Copy, Clone, Debug)]
+pub struct F32x16 {
+    size: usize,
 
-//     #[cfg(avx512)]
-//     elements: __m512,
-// }
+    #[cfg(avx512)]
+    elements: __m512,
+}
 
-// impl F32x16 {
-//     #[inline]
-//     pub fn splat(value: f32) -> Self {
-//         {
-//             Self {
-//                 elements: unsafe { _mm512_set1_ps(value) },
-//                 size: SIZE,
-//             }
-//         }
-//     }
+impl F32x16 {
+    #[inline(always)]
+    pub fn new(slice: &[f32]) -> Self {
+        // based on the size of the passed slice, use load or load_partial
+        todo!();
+    }
 
-//     #[inline]
-//     pub fn load(ptr: *const f32, size: usize) -> Self {
-//         let msg = format!("Size must be == {}", SIZE);
-//         assert!(size == SIZE, "{}", msg);
+    #[inline(always)]
+    pub fn splat(value: f32) -> Self {
+        {
+            Self {
+                elements: unsafe { _mm512_set1_ps(value) },
+                size: SIZE,
+            }
+        }
+    }
 
-//         #[cfg(avx512)]
-//         {
-//             Self {
-//                 elements: unsafe { _mm512_loadu_ps(ptr) },
-//                 size: SIZE,
-//             }
-//         }
-//     }
+    #[inline(always)]
+    pub fn load(ptr: *const f32, size: usize) -> Self {
+        let msg = format!("Size must be == {}", SIZE);
+        assert!(size == SIZE, "{}", msg);
 
-//     #[inline]
-//     pub fn load_partial(ptr: *const f32, size: usize) -> Self {
-//         let msg = format!("Size must be < {}", SIZE);
-//         assert!(size < SIZE, "{}", msg);
+        #[cfg(avx512)]
+        {
+            Self {
+                elements: unsafe { _mm512_loadu_ps(ptr) },
+                size: SIZE,
+            }
+        }
+    }
 
-//         #[cfg(avx512)]
-//         {
-//             let mask: __mmask16 = (1 << size) - 1;
+    #[inline(always)]
+    pub fn load_partial(ptr: *const f32, size: usize) -> Self {
+        let msg = format!("Size must be < {}", SIZE);
+        assert!(size < SIZE, "{}", msg);
 
-//             Self {
-//                 elements: unsafe { _mm512_maskz_loadu_ps(mask, ptr) },
-//                 size,
-//             }
-//         }
-//     }
+        #[cfg(avx512)]
+        {
+            let mask: __mmask16 = (1 << size) - 1;
 
-//     #[inline]
-//     pub fn to_vec(&self) -> Vec<f32> {
-//         let msg = format!("Size must be <= {}", SIZE);
-//         assert!(self.size <= SIZE, "{}", msg);
+            Self {
+                elements: unsafe { _mm512_maskz_loadu_ps(mask, ptr) },
+                size,
+            }
+        }
+    }
 
-//         #[cfg(avx512)]
-//         {
-//             let mut vec = vec![0f32; self.size];
+    #[inline(always)]
+    pub fn to_vec(&self) -> Vec<f32> {
+        let msg = format!("Size must be <= {}", SIZE);
+        assert!(self.size <= SIZE, "{}", msg);
 
-//             unsafe {
-//                 if self.size == SIZE {
-//                     _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
-//                 } else {
-//                     let mask: __mmask16 = (1 << self.size) - 1;
-//                     _mm512_mask_storeu_ps(vec.as_mut_ptr(), mask, self.elements);
-//                 }
-//             }
+        #[cfg(avx512)]
+        {
+            let mut vec = vec![0f32; self.size];
 
-//             vec
-//         }
-//     }
+            unsafe {
+                if self.size == SIZE {
+                    _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
+                } else {
+                    let mask: __mmask16 = (1 << self.size) - 1;
+                    _mm512_mask_storeu_ps(vec.as_mut_ptr(), mask, self.elements);
+                }
+            }
 
-//     #[inline]
-//     fn store(&self) -> [f32; 16] {
-//         let msg = format!("Size must be == {}", SIZE);
+            vec
+        }
+    }
 
-//         assert!(self.size == SIZE, "{}", msg);
+    #[inline(always)]
+    fn store(&self) -> [f32; 16] {
+        let msg = format!("Size must be == {}", SIZE);
 
-//         #[cfg(avx512)]
-//         {
-//             let mut array = [0f32; SIZE];
+        assert!(self.size == SIZE, "{}", msg);
 
-//             unsafe {
-//                 _mm512_storeu_ps(array.as_mut_ptr(), self.elements);
-//             }
+        #[cfg(avx512)]
+        {
+            let mut array = [0f32; SIZE];
 
-//             array
-//         }
-//     }
+            unsafe {
+                _mm512_storeu_ps(array.as_mut_ptr(), self.elements);
+            }
 
-//     #[inline]
-//     fn store_partial(&self) -> std::vec::Vec<f32> {
-//         let msg = format!("Size must be < {}", SIZE);
+            array
+        }
+    }
 
-//         assert!(self.size < SIZE, "{}", msg);
+    #[inline(always)]
+    fn store_partial(&self) -> std::vec::Vec<f32> {
+        let msg = format!("Size must be < {}", SIZE);
 
-//         #[cfg(avx512)]
-//         {
-//             let mut vec = vec![0f32; self.size];
+        assert!(self.size < SIZE, "{}", msg);
 
-//             unsafe {
-//                 _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
-//             }
+        #[cfg(avx512)]
+        {
+            let mut vec = vec![0f32; self.size];
 
-//             vec
-//         }
-//     }
-// }
+            unsafe {
+                _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
+            }
+
+            vec
+        }
+    }
+}
 
 #[inline(always)]
 fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
