@@ -1,7 +1,6 @@
-use rayon::prelude::*;
-use std::arch::x86_64::*;
+use std::{arch::x86_64::*, ops::Add};
 
-const SIZE: usize = 16;
+pub const SIZE: usize = 16;
 
 // Define f32x16 using two f32x8
 #[derive(Copy, Clone, Debug)]
@@ -14,48 +13,46 @@ pub struct F32x16 {
 
 impl F32x16 {
     #[inline(always)]
-    pub fn new(slice: &[f32]) -> Self {
-        // based on the size of the passed slice, use load or load_partial
-        todo!();
+    pub fn new(slice: Vec<f32>) -> Self {
+        if slice.len() == SIZE {
+            Self::load(slice.as_ptr(), slice.len())
+        } else if slice.len() < SIZE {
+            Self::load_partial(slice.as_ptr(), slice.len())
+        } else {
+            let msg = format!("F32x16 size must not exceed {}", SIZE);
+            panic!("{}", msg);
+        }
     }
 
     #[inline(always)]
     pub fn splat(value: f32) -> Self {
-        {
-            Self {
-                elements: unsafe { _mm512_set1_ps(value) },
-                size: SIZE,
-            }
+        Self {
+            elements: unsafe { _mm512_set1_ps(value) },
+            size: SIZE,
         }
     }
 
     #[inline(always)]
-    pub fn load(ptr: *const f32, size: usize) -> Self {
+    fn load(ptr: *const f32, size: usize) -> Self {
         let msg = format!("Size must be == {}", SIZE);
         assert!(size == SIZE, "{}", msg);
 
-        #[cfg(avx512)]
-        {
-            Self {
-                elements: unsafe { _mm512_loadu_ps(ptr) },
-                size: SIZE,
-            }
+        Self {
+            elements: unsafe { _mm512_loadu_ps(ptr) },
+            size: SIZE,
         }
     }
 
     #[inline(always)]
-    pub fn load_partial(ptr: *const f32, size: usize) -> Self {
+    fn load_partial(ptr: *const f32, size: usize) -> Self {
         let msg = format!("Size must be < {}", SIZE);
         assert!(size < SIZE, "{}", msg);
 
-        #[cfg(avx512)]
-        {
-            let mask: __mmask16 = (1 << size) - 1;
+        let mask: __mmask16 = (1 << size) - 1;
 
-            Self {
-                elements: unsafe { _mm512_maskz_loadu_ps(mask, ptr) },
-                size,
-            }
+        Self {
+            elements: unsafe { _mm512_maskz_loadu_ps(mask, ptr) },
+            size,
         }
     }
 
@@ -64,142 +61,93 @@ impl F32x16 {
         let msg = format!("Size must be <= {}", SIZE);
         assert!(self.size <= SIZE, "{}", msg);
 
-        #[cfg(avx512)]
-        {
-            let mut vec = vec![0f32; self.size];
-
-            unsafe {
-                if self.size == SIZE {
-                    _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
-                } else {
-                    let mask: __mmask16 = (1 << self.size) - 1;
-                    _mm512_mask_storeu_ps(vec.as_mut_ptr(), mask, self.elements);
-                }
-            }
-
-            vec
+        if self.size == SIZE {
+            self.store()
+        } else {
+            self.store_partial()
         }
     }
 
     #[inline(always)]
-    fn store(&self) -> [f32; 16] {
+    fn store(&self) -> Vec<f32> {
         let msg = format!("Size must be == {}", SIZE);
 
         assert!(self.size == SIZE, "{}", msg);
 
-        #[cfg(avx512)]
-        {
-            let mut array = [0f32; SIZE];
+        let mut vec = vec![0f32; SIZE];
 
-            unsafe {
-                _mm512_storeu_ps(array.as_mut_ptr(), self.elements);
-            }
-
-            array
+        unsafe {
+            _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
         }
+
+        vec
     }
 
     #[inline(always)]
-    fn store_partial(&self) -> std::vec::Vec<f32> {
+    fn store_partial(&self) -> Vec<f32> {
         let msg = format!("Size must be < {}", SIZE);
 
         assert!(self.size < SIZE, "{}", msg);
 
-        #[cfg(avx512)]
-        {
-            let mut vec = vec![0f32; self.size];
+        let mask: __mmask16 = (1 << self.size) - 1;
 
-            unsafe {
-                _mm512_storeu_ps(vec.as_mut_ptr(), self.elements);
+        let mut vec = vec![0f32; self.size];
+
+        unsafe {
+            _mm512_mask_storeu_ps(vec.as_mut_ptr(), mask, self.elements);
+        }
+
+        vec
+    }
+
+    fn _mask_add(&self, rhs: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", SIZE);
+        assert!(self.size == rhs.size, "{}", msg);
+
+        unsafe {
+            let mask: __mmask16 = (1 << self.size) - 1;
+
+            // Add a+b
+            let elements = _mm512_maskz_add_ps(mask, self.elements, rhs.elements);
+
+            Self {
+                elements,
+                size: self.size,
             }
+        }
+    }
+    fn _add(&self, rhs: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", SIZE);
+        assert!(self.size == rhs.size, "{}", msg);
 
-            vec
+        unsafe {
+            // Add a+b
+            let elements = _mm512_add_ps(self.elements, rhs.elements);
+
+            Self {
+                elements,
+                size: self.size,
+            }
         }
     }
 }
 
-#[inline(always)]
-fn fmadd_f32x16(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
-    unsafe {
-        assert_eq!(
-            a_chunk.len(),
-            b_chunk.len(),
-            "Vectors must be the same length"
-        );
-        assert!(
-            a_chunk.len() == 16,
-            "Chunk length must be == 16 for AVX-512"
-        );
+/// Implementation of Add trait for Vec<f32> using our custom SIMD types
+impl Add for F32x16 {
+    type Output = F32x16;
 
-        let chunk_size = a_chunk.len();
+    fn add(self, rhs: F32x16) -> Self::Output {
+        let msg = format!("Operands must have the same size {}", SIZE);
 
-        let a = _mm512_loadu_ps(a_chunk.as_ptr());
-        let b = _mm512_loadu_ps(b_chunk.as_ptr());
+        assert!(self.size == rhs.size, "{}", msg);
 
-        // Fused multiply-add: a * b + 0.0
-        let c = _mm512_fmadd_ps(a, b, _mm512_setzero_ps());
-
-        let mut result = vec![0f32; chunk_size];
-        _mm512_storeu_ps(result.as_mut_ptr(), c);
-
-        result
+        if self.size == SIZE {
+            self._add(rhs)
+        } else if self.size < SIZE {
+            self._mask_add(rhs)
+        } else {
+            let msg = format!("F32x16 size must not exceed {}", SIZE);
+            panic!("{}", msg);
+        }
     }
-}
-
-#[inline(always)]
-fn fmadd_f32x16_partial(a_chunk: Vec<f32>, b_chunk: Vec<f32>) -> Vec<f32> {
-    unsafe {
-        assert_eq!(
-            a_chunk.len(),
-            b_chunk.len(),
-            "Vectors must be the same length"
-        );
-        assert!(
-            a_chunk.len() <= 16,
-            "Chunk length must be <= 16 for AVX-512"
-        );
-
-        let chunk_size = a_chunk.len();
-        let mask: __mmask16 = (1 << chunk_size) - 1;
-
-        let a = _mm512_maskz_loadu_ps(mask, a_chunk.as_ptr());
-        let b = _mm512_maskz_loadu_ps(mask, b_chunk.as_ptr());
-
-        // Fused multiply-add: a * b + 0.0
-        let c = _mm512_maskz_fmadd_ps(mask, a, b, _mm512_setzero_ps());
-
-        let mut result = vec![0f32; chunk_size];
-        _mm512_mask_storeu_ps(result.as_mut_ptr(), mask, c);
-
-        result
-    }
-}
-
-#[inline(always)]
-fn fmadd_avx512f(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
-    let chunk_size = 16;
-
-    let sum: Vec<f32> = a
-        .into_par_iter()
-        .chunks(chunk_size)
-        .zip_eq(b.into_par_iter().chunks(chunk_size))
-        .map(|(a_chunk, b_chunk)| {
-            if a_chunk.len() == chunk_size {
-                fmadd_f32x16(a_chunk, b_chunk)
-            } else {
-                fmadd_f32x16_partial(a_chunk, b_chunk)
-            }
-        })
-        .flatten()
-        .collect();
-
-    sum
-}
-
-#[inline(always)]
-pub fn fmadd(a: &[f32], b: &[f32]) -> Vec<f32> {
-    assert_eq!(a.len(), b.len(), "Vectors must be the same length");
-
-    #[cfg(all(avx512, rustc_channel = "nightly"))]
-    return fmadd_avx512f(a.to_vec(), b.to_vec());
 }

@@ -2,3 +2,5 @@
 
 #[cfg(all(avx512, rustc_channel = "nightly"))]
 pub mod f32x16_nightly;
+
+pub mod simd_add;
