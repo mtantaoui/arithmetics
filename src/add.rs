@@ -9,9 +9,11 @@ pub trait SimdAdd<Rhs = Self> {
     fn add(self, rhs: Rhs) -> Self::Output;
 }
 
+// TODO: Think of a way to organize mutliple implementations
+// of arithmetics operations for differents architectures
 #[inline(always)]
 #[cfg(avx512)]
-fn simd_add(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+fn add(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
     let chunk_size = SIZE;
 
     let sum: Vec<f32> = a
@@ -42,6 +44,6 @@ impl SimdAdd for Vec<f32> {
         let msg = format!("Operands must have the same size {}", self.len());
         assert!(self.len() == rhs.len(), "{}", msg);
 
-        simd_add(self, rhs)
+        add(self, rhs)
     }
 }

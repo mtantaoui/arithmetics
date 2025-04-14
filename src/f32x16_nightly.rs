@@ -1,5 +1,7 @@
 use std::{arch::x86_64::*, ops::Add};
 
+use crate::fmops::FusedMultiplyOps;
+
 pub const SIZE: usize = 16;
 
 // Define f32x16 using two f32x8
@@ -7,7 +9,6 @@ pub const SIZE: usize = 16;
 pub struct F32x16 {
     size: usize,
 
-    #[cfg(avx512)]
     elements: __m512,
 }
 
@@ -101,7 +102,7 @@ impl F32x16 {
     }
 
     fn _mask_add(&self, rhs: Self) -> Self {
-        let msg = format!("Operands must have the same size {}", SIZE);
+        let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == rhs.size, "{}", msg);
 
         unsafe {
@@ -116,8 +117,9 @@ impl F32x16 {
             }
         }
     }
+
     fn _add(&self, rhs: Self) -> Self {
-        let msg = format!("Operands must have the same size {}", SIZE);
+        let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == rhs.size, "{}", msg);
 
         unsafe {
@@ -130,9 +132,73 @@ impl F32x16 {
             }
         }
     }
+
+    fn _mask_fmadd(&self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        unsafe {
+            let mask: __mmask16 = (1 << self.size) - 1;
+
+            // Add (a+b) + self.elements
+            let elements = _mm512_maskz_fmadd_ps(mask, a.elements, b.elements, self.elements);
+
+            Self {
+                elements,
+                size: self.size,
+            }
+        }
+    }
+
+    fn _fmadd(&self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        unsafe {
+            // Add (a+b) + self.elements
+            let elements = _mm512_fmadd_ps(a.elements, b.elements, self.elements);
+
+            Self {
+                elements,
+                size: self.size,
+            }
+        }
+    }
+
+    fn _mask_fmsub(&self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        unsafe {
+            let mask: __mmask16 = (1 << self.size) - 1;
+
+            // Add (a+b) - self.elements
+            let elements = _mm512_maskz_fmsub_ps(mask, a.elements, b.elements, self.elements);
+
+            Self {
+                elements,
+                size: self.size,
+            }
+        }
+    }
+
+    fn _fmsub(&self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        unsafe {
+            // Add (a+b) + self.elements
+            let elements = _mm512_fmsub_ps(a.elements, b.elements, self.elements);
+
+            Self {
+                elements,
+                size: self.size,
+            }
+        }
+    }
 }
 
-/// Implementation of Add trait for Vec<f32> using our custom SIMD types
+/// Implementation of Add trait for Vec<f32> using custom SIMD types
 impl Add for F32x16 {
     type Output = F32x16;
 
@@ -145,6 +211,38 @@ impl Add for F32x16 {
             self._add(rhs)
         } else if self.size < SIZE {
             self._mask_add(rhs)
+        } else {
+            let msg = format!("F32x16 size must not exceed {}", SIZE);
+            panic!("{}", msg);
+        }
+    }
+}
+
+impl FusedMultiplyOps for F32x16 {
+    type Output = F32x16;
+
+    fn fused_multiply_add(self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        if self.size == SIZE {
+            self._fmadd(a, b)
+        } else if self.size < SIZE {
+            self._mask_fmadd(a, b)
+        } else {
+            let msg = format!("F32x16 size must not exceed {}", SIZE);
+            panic!("{}", msg);
+        }
+    }
+
+    fn fused_multiply_sub(self, a: Self, b: Self) -> Self {
+        let msg = format!("Operands must have the same size {}", self.size);
+        assert!(self.size == a.size && self.size == b.size, "{}", msg);
+
+        if self.size == SIZE {
+            self._fmsub(a, b)
+        } else if self.size < SIZE {
+            self._mask_fmsub(a, b)
         } else {
             let msg = format!("F32x16 size must not exceed {}", SIZE);
             panic!("{}", msg);
