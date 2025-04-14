@@ -3,8 +3,11 @@ use rayon::prelude::*;
 #[cfg(all(avx512, rustc_channel = "nightly"))]
 use crate::simd::f32x16_nightly::{F32x16, SIZE};
 
-#[cfg(avx2)]
+#[cfg(sse)]
 use crate::simd::f32x4::{F32x4, SIZE};
+
+#[cfg(avx2)]
+use crate::simd::f32x8::{F32x8, SIZE};
 
 use crate::simd::utils::SimdVec;
 
@@ -35,7 +38,7 @@ fn add_avx512_nightly(a: &[f32], b: &[f32]) {
     addition
 }
 
-#[cfg(any(avx2, sse))]
+#[cfg(sse)]
 fn add_sse(a: &[f32], b: &[f32]) -> Vec<f32> {
     let chunk_size = SIZE;
 
@@ -56,14 +59,38 @@ fn add_sse(a: &[f32], b: &[f32]) -> Vec<f32> {
     addition
 }
 
+#[cfg(avx2)]
+fn add_avx2(a: &[f32], b: &[f32]) -> Vec<f32> {
+    let chunk_size = SIZE;
+
+    let addition: Vec<f32> = a
+        .par_chunks(chunk_size)
+        .zip_eq(b.par_chunks(chunk_size))
+        .map(|(a_chunk, b_chunk)| {
+            let a = F32x8::new(a_chunk);
+            let b = F32x8::new(b_chunk);
+
+            let c = a + b;
+
+            c.to_vec()
+        })
+        .flatten()
+        .collect();
+
+    addition
+}
+
 /// Core SIMD addition function (Processes chunks in parallel)
 #[inline(always)]
 fn add_slices(a: &[f32], b: &[f32]) -> Vec<f32> {
     #[cfg(all(avx512, rustc_channel = "nightly"))]
     add_avx512_nightly(a, b);
 
-    #[cfg(any(avx2, sse))]
-    add_sse(a, b)
+    #[cfg(sse)]
+    add_sse(a, b);
+
+    #[cfg(avx2)]
+    add_avx2(a, b)
 }
 
 impl SimdAdd for Vec<f32> {

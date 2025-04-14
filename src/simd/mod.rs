@@ -4,3 +4,4 @@ pub(crate) mod f32x16_nightly;
 pub mod utils;
 
 pub mod f32x4;
+pub mod f32x8;

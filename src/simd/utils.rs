@@ -10,6 +10,11 @@ pub trait SimdVec<T> {
     /// .
     unsafe fn load(ptr: *const T, size: usize) -> Self;
 
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
     unsafe fn load_partial(ptr: *const T, size: usize) -> Self;
 
     fn to_vec(self) -> Vec<T>;

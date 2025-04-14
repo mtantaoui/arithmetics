@@ -1,6 +1,6 @@
 use arithmetics::ops::add::SimdAdd;
 
-#[cfg(all(avx512, rustc_channel = "nightly"))]
+#[cfg(all(rustc_channel = "nightly", avx512))]
 fn f32x16_avx512_nightly() {
     use arithmetics::ops::add::SimdAdd;
 
@@ -24,7 +24,7 @@ fn f32x16_avx512_nightly() {
 }
 
 fn main() {
-    let n: usize = 9;
+    let n: usize = 1001;
 
     // let a = vec![4.0f32; n];
     // let b = vec![2.0f32; n];
@@ -37,6 +37,6 @@ fn main() {
     #[cfg(avx2)]
     let res = a.as_slice().simd_add(b.as_slice());
 
-    println!("{:?}", res);
+    // println!("{:?}", res);
     println!("len : {:?}", res.len())
 }
