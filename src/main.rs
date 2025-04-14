@@ -1,10 +1,8 @@
-use std::ops::Add;
+use arithmetics::ops::add::SimdAdd;
 
-use arithmetics::add::SimdAdd;
-
-#[cfg(avx512)]
-fn avx512() {
-    use arithmetics::fmops::FusedMultiplyOps;
+#[cfg(all(avx512, rustc_channel = "nightly"))]
+fn f32x16_avx512_nightly() {
+    use arithmetics::ops::add::SimdAdd;
 
     #[cfg(rustc_channel = "nightly")]
     {
@@ -12,12 +10,11 @@ fn avx512() {
 
         let a = vec![4.0f32; n];
         let b = vec![2.0f32; n];
-        let c = vec![2.0f32; n];
 
         let res = a.as_slice().simd_add(b.as_slice());
-        // let res = c.fmadd(a, b);
 
-        println!("{:?}", res)
+        println!("{:?}", res);
+        println!("len : {:?}", res.len())
     }
 
     #[cfg(rustc_channel = "stable")]
@@ -27,24 +24,19 @@ fn avx512() {
 }
 
 fn main() {
-    println!("Running with the following CPU features:");
+    let n: usize = 9;
 
-    // Display detected CPU features
+    // let a = vec![4.0f32; n];
+    // let b = vec![2.0f32; n];
+    let a: Vec<f32> = (1..=n).map(|i| i as f32).collect();
+    let b: Vec<f32> = (1..=n).map(|i| i as f32).collect();
+
     #[cfg(all(avx512, rustc_channel = "nightly"))]
-    {
-        println!("  - Using AVX-512F optimized implementation ✓");
-        avx512();
-    }
-
-    #[cfg(all(avx512, rustc_channel = "stable"))]
-    println!("  - AVX-512F optimized implementation is not available ✓");
+    let res = a.as_slice().simd_add(b.as_slice());
 
     #[cfg(avx2)]
-    println!("  - Using AVX2 optimized implementation ✓");
+    let res = a.as_slice().simd_add(b.as_slice());
 
-    #[cfg(sse)]
-    println!("  - Using SSE4.1 optimized implementation ✓");
-
-    #[cfg(baseline)]
-    println!("  - Using baseline implementation (no SIMD optimizations)");
+    println!("{:?}", res);
+    println!("len : {:?}", res.len())
 }
