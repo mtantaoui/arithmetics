@@ -14,7 +14,7 @@ pub struct F32x16 {
 
 impl F32x16 {
     #[inline(always)]
-    pub fn new(slice: Vec<f32>) -> Self {
+    pub fn new(slice: &[f32]) -> Self {
         if slice.len() == SIZE {
             Self::load(slice.as_ptr(), slice.len())
         } else if slice.len() < SIZE {
@@ -144,8 +144,8 @@ impl F32x16 {
             let elements = _mm512_maskz_fmadd_ps(mask, a.elements, b.elements, self.elements);
 
             Self {
-                elements,
                 size: self.size,
+                elements,
             }
         }
     }
@@ -159,8 +159,8 @@ impl F32x16 {
             let elements = _mm512_fmadd_ps(a.elements, b.elements, self.elements);
 
             Self {
-                elements,
                 size: self.size,
+                elements,
             }
         }
     }
@@ -176,8 +176,8 @@ impl F32x16 {
             let elements = _mm512_maskz_fmsub_ps(mask, a.elements, b.elements, self.elements);
 
             Self {
-                elements,
                 size: self.size,
+                elements,
             }
         }
     }
@@ -187,18 +187,18 @@ impl F32x16 {
         assert!(self.size == a.size && self.size == b.size, "{}", msg);
 
         unsafe {
-            // Add (a+b) + self.elements
+            // Add (a+b) - self.elements
             let elements = _mm512_fmsub_ps(a.elements, b.elements, self.elements);
 
             Self {
-                elements,
                 size: self.size,
+                elements,
             }
         }
     }
 }
 
-/// Implementation of Add trait for Vec<f32> using custom SIMD types
+/// Implementation of Add trait for F32x16 using custom SIMD types
 impl Add for F32x16 {
     type Output = F32x16;
 
@@ -221,7 +221,7 @@ impl Add for F32x16 {
 impl FusedMultiplyOps for F32x16 {
     type Output = F32x16;
 
-    fn fused_multiply_add(self, a: Self, b: Self) -> Self {
+    fn fmadd(self, a: Self, b: Self) -> Self {
         let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == a.size && self.size == b.size, "{}", msg);
 
@@ -235,7 +235,7 @@ impl FusedMultiplyOps for F32x16 {
         }
     }
 
-    fn fused_multiply_sub(self, a: Self, b: Self) -> Self {
+    fn fmsub(self, a: Self, b: Self) -> Self {
         let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == a.size && self.size == b.size, "{}", msg);
 

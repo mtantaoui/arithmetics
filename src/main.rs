@@ -4,20 +4,25 @@ use arithmetics::add::SimdAdd;
 
 #[cfg(avx512)]
 fn avx512() {
+    use arithmetics::fmops::FusedMultiplyOps;
+
     #[cfg(rustc_channel = "nightly")]
     {
-        let n: usize = 20_000_000;
+        let n: usize = 20;
 
         let a = vec![4.0f32; n];
         let b = vec![2.0f32; n];
+        let c = vec![2.0f32; n];
 
-        // let _ = a.add(b);
-        // let _ = a.fmadd(b);
+        let res = a.as_slice().simd_add(b.as_slice());
+        // let res = c.fmadd(a, b);
+
+        println!("{:?}", res)
     }
 
     #[cfg(rustc_channel = "stable")]
     {
-        println!("AVX512 is not available for nightly mode")
+        println!("AVX512 is not available for stable build")
     }
 }
 
