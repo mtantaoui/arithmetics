@@ -26,4 +26,6 @@ pub trait SimdVec<T> {
     fn simd_mask_add(&self, rhs: Self) -> Self;
 
     fn simd_add(&self, rhs: Self) -> Self;
+
+    fn simd_sin(&self);
 }

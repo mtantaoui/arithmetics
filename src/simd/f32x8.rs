@@ -184,6 +184,10 @@ impl SimdVec<f32> for F32x8 {
             }
         }
     }
+
+    fn simd_sin(&self) {
+        todo!()
+    }
 }
 
 /// Implementation of Add trait for F32x8 using custom SIMD types

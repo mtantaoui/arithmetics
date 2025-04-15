@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use rayon::prelude::*;
 
 #[cfg(all(avx512, rustc_channel = "nightly"))]
