@@ -254,6 +254,14 @@ impl SimdVec<f32> for F32x8 {
     fn simd_sin(&self) {
         todo!()
     }
+
+    unsafe fn store_at(&self, ptr: *mut f32) {
+        todo!()
+    }
+
+    unsafe fn store_at_partial(&self, ptr: *mut f32) {
+        todo!()
+    }
 }
 
 /// Implementation of Add trait for F32x8 using custom SIMD types

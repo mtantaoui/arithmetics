@@ -23,6 +23,20 @@ pub trait SimdVec<T> {
 
     fn store_partial(&self) -> Vec<T>;
 
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn store_at(&self, ptr: *mut T);
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn store_at_partial(&self, ptr: *mut T);
+
     fn simd_mask_add(&self, rhs: Self) -> Self;
 
     fn simd_add(&self, rhs: Self) -> Self;

@@ -23,8 +23,9 @@ fn f32x16_avx512_nightly() {
     }
 }
 
-fn main() {
-    let n: usize = 100_000_000;
+fn test(n: usize) {
+    // let a = vec![1f32; n];
+    // let b = vec![1f32; n];
 
     let a: Vec<f32> = (1..=n).map(|i| i as f32).collect();
     let b: Vec<f32> = (1..=n).map(|i| i as f32).collect();
@@ -41,6 +42,10 @@ fn main() {
     #[cfg(sse)]
     let res = a.as_slice().simd_add(b.as_slice());
 
-    // println!("{:?}", res);
-    println!("len : {:?}", res.len())
+    println!("{:?}", res);
+    println!("len: {:?} \n", res.len())
+}
+
+fn main() {
+    (1..=27).for_each(test);
 }

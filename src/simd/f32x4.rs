@@ -33,17 +33,21 @@ pub struct F32x4 {
 }
 
 impl SimdVec<f32> for F32x4 {
+    #[inline(always)]
     fn new(slice: &[f32]) -> Self {
         match slice.len().cmp(&SIZE) {
             std::cmp::Ordering::Less => unsafe { Self::load_partial(slice.as_ptr(), slice.len()) },
-            std::cmp::Ordering::Equal => unsafe { Self::load(slice.as_ptr(), slice.len()) },
-            std::cmp::Ordering::Greater => {
-                let msg = format!("F32x4 size must not exceed {}", SIZE);
-                panic!("{}", msg);
-            }
+            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
+                Self::load(slice.as_ptr(), SIZE)
+            },
+            // std::cmp::Ordering::Greater => {
+            //     let msg = format!("F32x4 size must not exceed {}", SIZE);
+            //     panic!("{}", msg);
+            // }
         }
     }
 
+    #[inline(always)]
     fn splat(value: f32) -> Self {
         #[cfg(target_arch = "x86_64")]
         let splat = Self {
@@ -133,6 +137,7 @@ impl SimdVec<f32> for F32x4 {
         }
     }
 
+    #[inline(always)]
     fn store(&self) -> Vec<f32> {
         let msg = format!("Size must be <= {}", SIZE);
 
@@ -153,6 +158,80 @@ impl SimdVec<f32> for F32x4 {
         vec
     }
 
+    #[inline(always)]
+    unsafe fn store_at(&self, ptr: *mut f32) {
+        let msg = format!("Size must be <= {}", SIZE);
+
+        assert!(self.size <= SIZE, "{}", msg);
+
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            _mm_storeu_ps(ptr, self.elements);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            vst1q_f32(ptr, self.elements);
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn store_at_partial(&self, ptr: *mut f32) {
+        let msg = format!("Size must be <= {}", SIZE);
+
+        assert!(self.size <= SIZE, "{}", msg);
+
+        #[cfg(target_arch = "x86_64")]
+        match self.size {
+            3 => {
+                let mut tmp = [0.0f32; 4];
+                _mm_storeu_ps(tmp.as_mut_ptr(), self.elements);
+                *ptr.add(0) = tmp[0];
+                *ptr.add(1) = tmp[1];
+                *ptr.add(2) = tmp[2];
+            }
+            2 => {
+                _mm_storel_pi(ptr as *mut __m64, self.elements); // lower 64 bits = 2 floats
+            }
+            1 => {
+                _mm_store_ss(ptr, self.elements); // lower 32 bits = 1 float
+            }
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        match self.size {
+            3 => {
+                let low = vget_low_f32(self.elements); // extract [0, 1]
+                vst1_f32(ptr, low); // store [0, 1]
+
+                let third = vgetq_lane_f32(self.elements, 2); // extract element 2
+                *ptr.add(2) = third; // store element 2
+            }
+            2 => {
+                let low = vget_low_f32(self.elements);
+                vst1_f32(ptr, low);
+            }
+            1 => {
+                let first = vgetq_lane_f32(self.elements, 0);
+                *ptr = first;
+            }
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        }
+
+        // unsafe {
+
+        //     vst1q_f32(ptr, self.elements);
+        // }
+    }
+
+    #[inline(always)]
     fn store_partial(&self) -> Vec<f32> {
         match self.size {
             1..=3 => self.store().into_iter().take(self.size).collect(),
@@ -163,10 +242,12 @@ impl SimdVec<f32> for F32x4 {
         }
     }
 
+    #[inline(always)]
     fn simd_mask_add(&self, rhs: Self) -> Self {
         self.simd_add(rhs)
     }
 
+    #[inline(always)]
     fn simd_add(&self, rhs: Self) -> Self {
         let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == rhs.size, "{}", msg);
@@ -186,6 +267,7 @@ impl SimdVec<f32> for F32x4 {
         }
     }
 
+    #[inline(always)]
     fn simd_sin(&self) {
         todo!()
     }
@@ -195,6 +277,7 @@ impl SimdVec<f32> for F32x4 {
 impl Add for F32x4 {
     type Output = F32x4;
 
+    #[inline(always)]
     fn add(self, rhs: F32x4) -> Self::Output {
         let msg = format!("Operands must have the same size {}", SIZE);
 
