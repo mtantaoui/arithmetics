@@ -1,8 +1,11 @@
+use crate::simd::f32x4;
+
+#[cfg(not(target_arch = "x86_64"))]
+use super::{f32x4::F32x4, utils::SimdVec};
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 use std::ops::Add;
-
-use super::utils::SimdVec;
 
 pub const SIZE: usize = 8;
 
@@ -32,10 +35,20 @@ impl SimdVec<f32> for F32x8 {
     }
 
     fn splat(value: f32) -> Self {
-        Self {
+        #[cfg(target_arch = "x86_64")]
+        let splat = Self {
             elements: unsafe { _mm256_set1_ps(value) },
             size: SIZE,
-        }
+        };
+
+        #[cfg(not(target_arch = "x86_64"))]
+        let splat = Self {
+            size: SIZE,
+            low: F32x4::splat(value),
+            high: F32x4::splat(value),
+        };
+
+        splat
     }
 
     #[inline(always)]
@@ -43,17 +56,27 @@ impl SimdVec<f32> for F32x8 {
         let msg = format!("Size must be == {}", SIZE);
         assert!(size == SIZE, "{}", msg);
 
-        Self {
+        #[cfg(target_arch = "x86_64")]
+        let loaded = Self {
             elements: unsafe { _mm256_loadu_ps(ptr) },
             size,
-        }
+        };
+
+        #[cfg(not(target_arch = "x86_64"))]
+        let loaded = Self {
+            size: SIZE,
+            low: F32x4::load(ptr, f32x4::SIZE),
+            high: F32x4::load(unsafe { ptr.add(4) }, f32x4::SIZE),
+        };
+
+        loaded
     }
 
     #[inline(always)]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self {
         let msg = format!("Size must be < {}", SIZE);
         assert!(size < SIZE, "{}", msg);
-
+        #[cfg(target_arch = "x86_64")]
         let elements = match size {
             1 => unsafe { _mm256_set_ps(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, *ptr.add(0)) },
             2 => unsafe { _mm256_set_ps(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, *ptr.add(1), *ptr.add(0)) },
@@ -127,7 +150,28 @@ impl SimdVec<f32> for F32x8 {
             }
         };
 
-        Self { elements, size }
+        #[cfg(not(target_arch = "x86_64"))]
+        let (low, high): (F32x4, F32x4) = match size {
+            1 => (F32x4::load_partial(ptr, 1), F32x4::splat(0.0)),
+            2 => (F32x4::load_partial(ptr, 2), F32x4::splat(0.0)),
+            3 => (F32x4::load_partial(ptr, 3), F32x4::splat(0.0)),
+            4 => (F32x4::load(ptr, 4), F32x4::splat(0.0)),
+            5 => (F32x4::load(ptr, 4), F32x4::load_partial(ptr.add(4), 1)),
+            6 => (F32x4::load(ptr, 4), F32x4::load_partial(ptr.add(4), 2)),
+            7 => (F32x4::load(ptr, 4), F32x4::load_partial(ptr.add(4), 3)),
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        let loaded = Self { elements, size };
+
+        #[cfg(not(target_arch = "x86_64"))]
+        let loaded = Self { low, high, size };
+
+        loaded
     }
 
     #[inline(always)]
@@ -147,13 +191,25 @@ impl SimdVec<f32> for F32x8 {
 
         assert!(self.size <= SIZE, "{}", msg);
 
-        let mut vec = vec![0f32; SIZE];
-
+        #[cfg(target_arch = "x86_64")]
         unsafe {
+            let mut vec = vec![0f32; SIZE];
             _mm256_storeu_ps(vec.as_mut_ptr(), self.elements);
+
+            vec
         }
 
-        vec
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            let low_vec = self.low.store();
+            let high_vec = self.high.store();
+
+            let mut vec = vec![];
+            vec.extend(low_vec);
+            vec.extend(high_vec);
+
+            vec
+        }
     }
 
     fn store_partial(&self) -> Vec<f32> {
@@ -174,12 +230,22 @@ impl SimdVec<f32> for F32x8 {
         let msg = format!("Operands must have the same size {}", self.size);
         assert!(self.size == rhs.size, "{}", msg);
 
+        #[cfg(target_arch = "x86_64")]
         unsafe {
             // Add a+b
             let elements = _mm256_add_ps(self.elements, rhs.elements);
 
             Self {
                 elements,
+                size: self.size,
+            }
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Self {
+                low: self.low + rhs.low,
+                high: self.high + rhs.high,
                 size: self.size,
             }
         }

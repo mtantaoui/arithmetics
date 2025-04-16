@@ -24,10 +24,8 @@ fn f32x16_avx512_nightly() {
 }
 
 fn main() {
-    let n: usize = 1001;
+    let n: usize = 100_000_000;
 
-    // let a = vec![4.0f32; n];
-    // let b = vec![2.0f32; n];
     let a: Vec<f32> = (1..=n).map(|i| i as f32).collect();
     let b: Vec<f32> = (1..=n).map(|i| i as f32).collect();
 
@@ -35,6 +33,12 @@ fn main() {
     let res = a.as_slice().simd_add(b.as_slice());
 
     #[cfg(avx2)]
+    let res = a.as_slice().simd_add(b.as_slice());
+
+    #[cfg(neon)]
+    let res = a.as_slice().simd_add(b.as_slice());
+
+    #[cfg(sse)]
     let res = a.as_slice().simd_add(b.as_slice());
 
     // println!("{:?}", res);

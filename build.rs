@@ -41,6 +41,13 @@ impl CpuFeature {
                 detected: false,
                 nightly_only: false,
             },
+            CpuFeature {
+                name: "neon",
+                rustc_flag: "+neon",
+                cfg_flag: "neon",
+                detected: false,
+                nightly_only: false,
+            },
         ]
     }
 
@@ -66,6 +73,13 @@ impl CpuFeature {
                 name: "avx2",
                 rustc_flag: "+avx2",
                 cfg_flag: "avx2",
+                detected: false,
+                nightly_only: false,
+            },
+            CpuFeature {
+                name: "neon",
+                rustc_flag: "+neon",
+                cfg_flag: "neon",
                 detected: false,
                 nightly_only: false,
             },
@@ -122,6 +136,7 @@ impl CpuFeatureDetector for MacOSDetector {
                     "avx512f" => feature.detected = contents.contains("hw.optional.avx512f: 1"),
                     "avx2" => feature.detected = contents.contains("hw.optional.avx2: 1"),
                     "sse41" => feature.detected = contents.contains("hw.optional.sse4_1: 1"),
+                    "neon" => feature.detected = contents.contains("hw.optional.neon: 1"),
                     _ => {}
                 }
             }
@@ -224,11 +239,9 @@ fn apply_detected_cpu_features(features: &mut [CpuFeature]) {
 
     println!("cargo:rustc-cfg={}", cfg_flag);
 
-    features.iter().for_each(|cpu_feature| {
-        // Avoid `#[cfg(...)]` warning by registering it as a known config
-        println!("cargo::rustc-check-cfg=cfg({})", cpu_feature.cfg_flag);
-    });
-
-    // Avoid `#[cfg(...)]` on baseline implementations
-    println!("cargo::rustc-check-cfg=cfg(baseline)");
+    // Avoid `#[cfg(...)]` on different architectures implementations
+    println!("cargo::rustc-check-cfg=cfg(avx512)");
+    println!("cargo::rustc-check-cfg=cfg(avx2)");
+    println!("cargo::rustc-check-cfg=cfg(sse)");
+    println!("cargo::rustc-check-cfg=cfg(neon)");
 }

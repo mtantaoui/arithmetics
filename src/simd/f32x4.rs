@@ -1,5 +1,12 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
+
+#[cfg(target_arch = "arm")]
+use std::arch::arm::*;
+
 use std::ops::Add;
 
 use super::utils::SimdVec;
@@ -8,7 +15,7 @@ pub const SIZE: usize = 4;
 
 /// A SIMD vector of 4 32-bit floating point values
 /// This provides a cross-platform abstraction over architecture-specific SIMD types
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct F32x4 {
     size: usize,
 
@@ -38,10 +45,19 @@ impl SimdVec<f32> for F32x4 {
     }
 
     fn splat(value: f32) -> Self {
-        Self {
+        #[cfg(target_arch = "x86_64")]
+        let splat = Self {
             elements: unsafe { _mm_set1_ps(value) },
             size: SIZE,
-        }
+        };
+
+        #[cfg(target_arch = "aarch64")]
+        let splat = Self {
+            elements: unsafe { vdupq_n_f32(value) },
+            size: SIZE,
+        };
+
+        splat
     }
 
     #[inline(always)]
@@ -49,10 +65,19 @@ impl SimdVec<f32> for F32x4 {
         let msg = format!("Size must be == {}", SIZE);
         assert!(size == SIZE, "{}", msg);
 
-        Self {
+        #[cfg(target_arch = "x86_64")]
+        let loaded = Self {
             elements: unsafe { _mm_loadu_ps(ptr) },
             size,
-        }
+        };
+
+        #[cfg(target_arch = "aarch64")]
+        let loaded = Self {
+            elements: unsafe { vld1q_f32(ptr) },
+            size,
+        };
+
+        loaded
     }
 
     #[inline(always)]
@@ -60,6 +85,7 @@ impl SimdVec<f32> for F32x4 {
         let msg = format!("Size must be < {}", SIZE);
         assert!(size < SIZE, "{}", msg);
 
+        #[cfg(target_arch = "x86_64")]
         let elements = match size {
             1 => unsafe { _mm_set_ps(0.0, 0.0, 0.0, *ptr.add(0)) },
             2 => unsafe { _mm_set_ps(0.0, 0.0, *ptr.add(1), *ptr.add(0)) },
@@ -67,6 +93,28 @@ impl SimdVec<f32> for F32x4 {
             _ => {
                 let msg = "WTF is happening here";
                 panic!("{}", msg);
+            }
+        };
+
+        #[cfg(target_arch = "aarch64")]
+        let elements = unsafe {
+            match size {
+                1 => {
+                    let v = vdupq_n_f32(0.0);
+                    vsetq_lane_f32(*ptr.add(0), v, 0)
+                }
+                2 => {
+                    let mut v = vdupq_n_f32(0.0);
+                    v = vsetq_lane_f32(*ptr.add(0), v, 0);
+                    vsetq_lane_f32(*ptr.add(1), v, 1)
+                }
+                3 => {
+                    let mut v = vdupq_n_f32(0.0);
+                    v = vsetq_lane_f32(*ptr.add(0), v, 0);
+                    v = vsetq_lane_f32(*ptr.add(1), v, 1);
+                    vsetq_lane_f32(*ptr.add(2), v, 2)
+                }
+                _ => panic!("WTF is happening here"),
             }
         };
 
@@ -92,8 +140,14 @@ impl SimdVec<f32> for F32x4 {
 
         let mut vec = vec![0f32; SIZE];
 
+        #[cfg(target_arch = "x86_64")]
         unsafe {
             _mm_storeu_ps(vec.as_mut_ptr(), self.elements);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            vst1q_f32(vec.as_mut_ptr(), self.elements);
         }
 
         vec
@@ -119,7 +173,11 @@ impl SimdVec<f32> for F32x4 {
 
         unsafe {
             // Add a+b
+            #[cfg(target_arch = "x86_64")]
             let elements = _mm_add_ps(self.elements, rhs.elements);
+
+            #[cfg(target_arch = "aarch64")]
+            let elements = vaddq_f32(self.elements, rhs.elements);
 
             Self {
                 elements,
