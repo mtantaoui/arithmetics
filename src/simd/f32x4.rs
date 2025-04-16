@@ -184,17 +184,18 @@ impl SimdVec<f32> for F32x4 {
         #[cfg(target_arch = "x86_64")]
         match self.size {
             3 => {
-                let mut tmp = [0.0f32; 4];
-                _mm_storeu_ps(tmp.as_mut_ptr(), self.elements);
-                *ptr.add(0) = tmp[0];
-                *ptr.add(1) = tmp[1];
-                *ptr.add(2) = tmp[2];
+                // Store the lower 2 floats using MMX store
+                _mm_storel_pi(ptr as *mut __m64, self.elements);
+
+                // Extract the 3rd float using shuffle
+                let third = _mm_extract_ps(self.elements, 2) as u32;
+                *(ptr.add(2)) = core::mem::transmute(third);
             }
             2 => {
-                _mm_storel_pi(ptr as *mut __m64, self.elements); // lower 64 bits = 2 floats
+                _mm_storel_pi(ptr as *mut __m64, self.elements);
             }
             1 => {
-                _mm_store_ss(ptr, self.elements); // lower 32 bits = 1 float
+                _mm_store_ss(ptr, self.elements);
             }
             _ => {
                 let msg = "WTF is happening here";
@@ -224,11 +225,6 @@ impl SimdVec<f32> for F32x4 {
                 panic!("{}", msg);
             }
         }
-
-        // unsafe {
-
-        //     vst1q_f32(ptr, self.elements);
-        // }
     }
 
     #[inline(always)]

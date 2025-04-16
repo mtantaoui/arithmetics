@@ -26,11 +26,9 @@ impl SimdVec<f32> for F32x8 {
     fn new(slice: &[f32]) -> Self {
         match slice.len().cmp(&SIZE) {
             std::cmp::Ordering::Less => unsafe { Self::load_partial(slice.as_ptr(), slice.len()) },
-            std::cmp::Ordering::Equal => unsafe { Self::load(slice.as_ptr(), slice.len()) },
-            std::cmp::Ordering::Greater => {
-                let msg = format!("F32x4 size must not exceed {}", SIZE);
-                panic!("{}", msg);
-            }
+            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
+                Self::load(slice.as_ptr(), SIZE)
+            },
         }
     }
 
