@@ -23,7 +23,7 @@ pub struct F32x4 {
     elements: __m128,
 
     #[cfg(target_arch = "aarch64")]
-    elements: std::arch::aarch64::float32x4_t,
+    pub elements: std::arch::aarch64::float32x4_t,
 
     #[cfg(target_arch = "arm")]
     elements: std::arch::arm::float32x4_t,
@@ -40,10 +40,6 @@ impl SimdVec<f32> for F32x4 {
             std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
                 Self::load(slice.as_ptr(), SIZE)
             },
-            // std::cmp::Ordering::Greater => {
-            //     let msg = format!("F32x4 size must not exceed {}", SIZE);
-            //     panic!("{}", msg);
-            // }
         }
     }
 

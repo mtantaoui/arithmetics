@@ -5,6 +5,13 @@ use super::{f32x4::F32x4, utils::SimdVec};
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
+
+#[cfg(target_arch = "arm")]
+use std::arch::arm::*;
+
 use std::ops::Add;
 
 pub const SIZE: usize = 8;
@@ -254,11 +261,84 @@ impl SimdVec<f32> for F32x8 {
     }
 
     unsafe fn store_at(&self, ptr: *mut f32) {
-        todo!()
+        let msg = format!("Size must be <= {}", SIZE);
+
+        assert!(self.size <= SIZE, "{}", msg);
+
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            _mm256_storeu_ps(ptr, self.elements);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            vst1q_f32(ptr, self.low.elements);
+            vst1q_f32(ptr.add(f32x4::SIZE), self.high.elements);
+        }
     }
 
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
-        todo!()
+        #[cfg(target_arch = "x86_64")]
+        match self.size {
+            4..=7 => {
+                // Store lower 4 floats with a single instruction
+                _mm_storeu_ps(ptr, _mm256_castps256_ps128(self.elements));
+
+                // Extract upper lane once
+                let upper = _mm256_extractf128_ps(self.elements, 1);
+
+                // Use a more efficient approach for remaining elements
+                match self.size {
+                    7 => {
+                        // Store the next 3 elements with one instruction
+                        _mm_storel_pi((ptr.add(4)) as *mut __m64, upper);
+                        let seventh = _mm_extract_ps(upper, 2) as u32;
+                        *(ptr.add(6)) = core::mem::transmute(seventh);
+                    }
+                    6 => {
+                        // Store the next 2 elements with one instruction
+                        _mm_storel_pi((ptr.add(4)) as *mut __m64, upper);
+                    }
+                    5 => {
+                        // Store just one more element
+                        _mm_store_ss(ptr.add(4), upper);
+                    }
+                    _ => {} // Size 4 already fully handled
+                }
+            }
+            3 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_storel_pi(ptr as *mut __m64, lower);
+                let third = _mm_extract_ps(lower, 2) as u32;
+                *(ptr.add(2)) = core::mem::transmute(third);
+            }
+            2 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_storel_pi(ptr as *mut __m64, lower);
+            }
+            1 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_store_ss(ptr, lower);
+            }
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        match self.size {
+            5..=7 => {
+                self.low.store_at(ptr);
+                self.high.store_at_partial(ptr.add(4));
+            }
+            4 => self.low.store_at(ptr),
+            1..=3 => self.low.store_at_partial(ptr),
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        }
     }
 }
 
