@@ -42,7 +42,7 @@ fn test(n: usize) {
     #[cfg(sse)]
     let res = a.as_slice().simd_add(b.as_slice());
 
-    // println!("{:?}", res);
+    println!("{:?}", res);
     println!("len: {:?} \n", res.len())
 }
 

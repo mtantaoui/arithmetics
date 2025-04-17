@@ -11,9 +11,7 @@ use crate::simd::f32x4::{F32x4, SIZE};
 
 #[cfg(avx2)]
 use crate::simd::f32x8::{F32x8, SIZE};
-
 use crate::simd::utils::SimdVec;
-
 pub trait SimdAdd<Rhs = Self> {
     type Output;
 
@@ -78,21 +76,32 @@ fn add_sse(a: &[f32], b: &[f32]) -> Vec<f32> {
 fn add_avx2(a: &[f32], b: &[f32]) -> Vec<f32> {
     let chunk_size = SIZE;
 
-    let addition: Vec<f32> = a
-        .par_chunks(chunk_size)
-        .zip_eq(b.par_chunks(chunk_size))
-        .map(|(a_chunk, b_chunk)| {
-            let a = F32x8::new(a_chunk);
-            let b = F32x8::new(b_chunk);
+    let n = a.len();
 
-            let c = a + b;
+    let mut c = vec![0.0; n];
 
-            c.to_vec()
-        })
-        .flatten()
-        .collect();
+    c.par_chunks_mut(chunk_size)
+        .enumerate()
+        .for_each(|(i, c_chunk)| {
+            let start = SIZE * i;
 
-    addition
+            let a_chunk = F32x8::new(&a[start..]);
+            let b_chunk = F32x8::new(&b[start..]);
+
+            match c_chunk.len().cmp(&chunk_size) {
+                std::cmp::Ordering::Less => unsafe {
+                    (a_chunk + b_chunk).store_at_partial(c_chunk.as_mut_ptr())
+                },
+                std::cmp::Ordering::Equal => unsafe {
+                    (a_chunk + b_chunk).store_at(c_chunk.as_mut_ptr())
+                },
+                std::cmp::Ordering::Greater => {
+                    let msg = "WTF is happening here";
+                    panic!("{}", msg);
+                }
+            }
+        });
+    c
 }
 
 #[cfg(neon)]

@@ -179,8 +179,6 @@ impl SimdVec<f32> for F32x4 {
 
         assert!(self.size <= SIZE, "{}", msg);
 
-        println!("size {}", self.size);
-
         #[cfg(all(sse, target_arch = "x86_64"))]
         match self.size {
             3 => {
