@@ -179,7 +179,7 @@ impl SimdVec<f32> for F32x4 {
 
         assert!(self.size <= SIZE, "{}", msg);
 
-        #[cfg(all(sse, target_arch = "x86_64"))]
+        #[cfg(all(target_arch = "x86_64", sse))]
         match self.size {
             3 => {
                 // Store the lower 2 floats using MMX store
@@ -194,6 +194,31 @@ impl SimdVec<f32> for F32x4 {
             }
             1 => {
                 _mm_store_ss(ptr, self.elements);
+            }
+            _ => {
+                let msg = "WTF is happening here";
+                panic!("{}", msg);
+            }
+        }
+
+        #[cfg(all(target_arch = "x86_64", avx2))]
+        match self.size {
+            3 => {
+                // Store first 2 floats (indices 0 and 1)
+                let mask = _mm_setr_epi32(-1, -1, 0, 0); // mask to store only first 2 floats
+                _mm_maskstore_ps(ptr, mask, self.elements);
+
+                // Extract 3rd float (index 2)
+                let shuffled = _mm_shuffle_ps(self.elements, self.elements, 0b10_10_10_10); // broadcast index 2
+                let third = _mm_cvtss_f32(shuffled); // convert to f32
+                *ptr.add(2) = third;
+            }
+            2 => {
+                let mask = _mm_setr_epi32(-1, -1, 0, 0); // store only first 2 floats
+                _mm_maskstore_ps(ptr, mask, self.elements);
+            }
+            1 => {
+                _mm_store_ss(ptr, self.elements); // store only lowest float
             }
             _ => {
                 let msg = "WTF is happening here";
