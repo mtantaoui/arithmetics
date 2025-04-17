@@ -1,5 +1,4 @@
-use crate::simd::f32x4;
-
+use super::utils::SimdVec;
 #[cfg(not(target_arch = "x86_64"))]
 use super::{f32x4::F32x4, utils::SimdVec};
 
@@ -278,7 +277,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(sse, target_arch = "x86_64"))]
         match self.size {
             4..=7 => {
                 // Store lower 4 floats with a single instruction
@@ -326,6 +325,63 @@ impl SimdVec<f32> for F32x8 {
             }
         }
 
+        #[cfg(all(avx2, target_arch = "x86_64"))]
+        match self.size {
+            4..=7 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_storeu_ps(ptr, lower); // Store first 4 floats
+
+                let upper = _mm256_extractf128_ps(self.elements, 1); // Extract upper lane
+
+                match self.size {
+                    7 => {
+                        // Store 5th float
+                        _mm_store_ss(ptr.add(4), upper);
+
+                        // Store 6th float
+                        let sixth = _mm_shuffle_ps(upper, upper, 0b01_01_01_01); // move upper[1] to all lanes
+                        _mm_store_ss(ptr.add(5), sixth);
+
+                        // Store 7th float
+                        let seventh = _mm_shuffle_ps(upper, upper, 0b10_10_10_10); // move upper[2] to all lanes
+                        _mm_store_ss(ptr.add(6), seventh);
+                    }
+                    6 => {
+                        _mm_store_ss(ptr.add(4), upper);
+                        let sixth = _mm_shuffle_ps(upper, upper, 0b01_01_01_01);
+                        _mm_store_ss(ptr.add(5), sixth);
+                    }
+                    5 => {
+                        _mm_store_ss(ptr.add(4), upper);
+                    }
+                    _ => {}
+                }
+            }
+            3 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                // Store first float
+                _mm_store_ss(ptr, lower);
+                // Store second float
+                let second = _mm_shuffle_ps(lower, lower, 0b01_01_01_01);
+                _mm_store_ss(ptr.add(1), second);
+                // Store third float
+                let third = _mm_shuffle_ps(lower, lower, 0b10_10_10_10);
+                _mm_store_ss(ptr.add(2), third);
+            }
+            2 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_store_ss(ptr, lower);
+                let second = _mm_shuffle_ps(lower, lower, 0b01_01_01_01);
+                _mm_store_ss(ptr.add(1), second);
+            }
+            1 => {
+                let lower = _mm256_castps256_ps128(self.elements);
+                _mm_store_ss(ptr, lower);
+            }
+            _ => {
+                panic!("Unexpected size: {}", self.size);
+            }
+        }
         #[cfg(target_arch = "aarch64")]
         match self.size {
             5..=7 => {
