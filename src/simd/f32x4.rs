@@ -162,6 +162,8 @@ impl SimdVec<f32> for F32x4 {
 
         #[cfg(target_arch = "x86_64")]
         unsafe {
+            println!("size {}", self.size);
+
             _mm_storeu_ps(ptr, self.elements);
         }
 
@@ -177,7 +179,9 @@ impl SimdVec<f32> for F32x4 {
 
         assert!(self.size <= SIZE, "{}", msg);
 
-        #[cfg(target_arch = "x86_64")]
+        println!("size {}", self.size);
+
+        #[cfg(all(sse, target_arch = "x86_64"))]
         match self.size {
             3 => {
                 // Store the lower 2 floats using MMX store
