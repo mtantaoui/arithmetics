@@ -182,15 +182,19 @@ impl SimdVec<f32> for F32x4 {
         #[cfg(all(target_arch = "x86_64", sse))]
         match self.size {
             3 => {
-                // Store the lower 2 floats using MMX store
-                _mm_storel_pi(ptr as *mut __m64, self.elements);
+                // Store first two floats at once using _mm_store_sd
+                // This converts the lower 64 bits to double and stores them
+                let lower_two = _mm_castps_pd(self.elements);
+                _mm_store_sd(ptr as *mut f64, lower_two);
 
-                // Extract the 3rd float using shuffle
-                let third = _mm_extract_ps(self.elements, 2) as u32;
-                *(ptr.add(2)) = core::mem::transmute(third);
+                // Extract the third float and store it
+                let third = _mm_shuffle_ps(self.elements, self.elements, 0x2);
+                _mm_store_ss(ptr.add(2), third);
             }
             2 => {
-                _mm_storel_pi(ptr as *mut __m64, self.elements);
+                // Store first two floats at once
+                let lower_two = _mm_castps_pd(self.elements);
+                _mm_store_sd(ptr as *mut f64, lower_two);
             }
             1 => {
                 _mm_store_ss(ptr, self.elements);
