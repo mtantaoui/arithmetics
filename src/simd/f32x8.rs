@@ -1,6 +1,7 @@
-use super::utils::SimdVec;
 #[cfg(not(target_arch = "x86_64"))]
-use super::{f32x4::F32x4, utils::SimdVec};
+use super::f32x4::{self, F32x4};
+
+use super::utils::SimdVec;
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
